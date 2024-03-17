@@ -3,7 +3,7 @@ extern crate rand;
 use crate::rand::prelude::SliceRandom;
 use rand::thread_rng;
 
-pub fn wrap(i: i32, max: i32) -> i32 {
+pub fn wrap(i: usize, max: usize) -> usize {
     if max == 0 {
         return 0;
     }
@@ -11,7 +11,7 @@ pub fn wrap(i: i32, max: i32) -> i32 {
 }
 
 // create a new bunch of thresholds
-pub fn create_new_distribution(n: i32) -> Vec<i32> {
+pub fn create_new_distribution(n: usize) -> Vec<usize> {
     // vec has ascending integers 0-N
     // then shuffle it randomly
     let mut v = Vec::from_iter(0..n);
@@ -23,15 +23,15 @@ pub fn create_new_distribution(n: i32) -> Vec<i32> {
 // When the density is changed, the active steps change according to their threshold
 pub fn set_activations_for_new_density(
     activations: &mut Vec<bool>,
-    step_thresh: &Vec<i32>,
-    density: i32,
+    step_thresh: &Vec<usize>,
+    density: usize,
 ) {
     for i in 0..activations.len() {
         activations[i] = step_thresh[i] < density;
     }
 }
 
-fn num_active_steps(active: &Vec<bool>) -> i32 {
+fn num_active_steps(active: &Vec<bool>) -> usize {
     active
         .iter()
         .fold(0, |acc, x| if *x { acc + 1 } else { acc })
@@ -40,7 +40,7 @@ fn num_active_steps(active: &Vec<bool>) -> i32 {
 //  adjust distribution  whilst respecting the changed step (step at index)
 // if something changed, returns true
 pub fn change_step_update_thresholds(
-    thresh: &mut Vec<i32>,
+    thresh: &mut Vec<usize>,
     active: &mut Vec<bool>,
     step_index: usize,
     on: bool,
@@ -65,6 +65,24 @@ pub fn change_step_update_thresholds(
     true
 }
 
+// a new random distribution, generate thresholds where only the provided steps exceed the threshold.
+// The threshold is returned as a density
+pub fn create_new_distribution_given_active_steps(active: &Vec<bool>) -> (Vec<usize>, usize) {
+    let n: usize = active.len().try_into().unwrap();
+    let mut result = create_new_distribution(n);
+    let mut dummy_active = vec![false; active.len()];
+
+    // now make sure lowest thresholds correspond to active steps activating steps one by
+    // one
+    // need to randomise order to avoid consecutive thresholds
+    let indices = create_new_distribution(n);
+    for i in indices {
+        change_step_update_thresholds(&mut result, &mut dummy_active, i, active[i]);
+    }
+
+    (result, num_active_steps(active))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -82,7 +100,7 @@ mod tests {
 
     #[test]
     fn test_set_activations_for_new_density() {
-        let thresh: Vec<i32> = vec![0, 1, 2, 4, 3];
+        let thresh: Vec<usize> = vec![0, 1, 2, 4, 3];
         let mut active = vec![false, false, false, false, false];
         set_activations_for_new_density(&mut active, &thresh, 0);
         assert_eq!(active, vec![false, false, false, false, false]);
@@ -102,9 +120,9 @@ mod tests {
 
     #[test]
     fn test_change_step() {
-        let mut thresh: Vec<i32> = vec![0, 1, 2, 3, 4];
+        let mut thresh: Vec<usize> = vec![0, 1, 2, 3, 4];
         let mut active = vec![false, false, false, false, false];
-        let density: i32 = 1;
+        let density: usize = 1;
 
         // smallest density only has one active step
         set_activations_for_new_density(&mut active, &thresh, density);
@@ -123,5 +141,17 @@ mod tests {
         assert_eq!(active, vec![false, false, false, false, true]);
         // and the will be set to 1, swapped with the last density 0
         assert_eq!(thresh, vec![1, 4, 2, 3, 0]);
+    }
+
+    #[test]
+    fn test_create_new_distribution_given_active_steps() {
+        let active = vec![false, true, false, false, true];
+        // 2, 0, 4, 3, 1
+        let (thresh, density) = create_new_distribution_given_active_steps(&active);
+
+        assert!(thresh[0] >= 2);
+        assert!(thresh[1] < 2);
+        assert!(thresh[4] < 2);
+        assert!(density == 2);
     }
 }
