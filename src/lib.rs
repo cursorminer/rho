@@ -106,6 +106,39 @@ pub fn unflatten(flat: &Vec<usize>, row_lengths: &Vec<usize>) -> Vec<Vec<usize>>
     grid
 }
 
+pub fn flat_index_to_grid_index(flat_index: usize, row_lengths: &Vec<usize>) -> (usize, usize) {
+    let mut row_index = 0;
+    let mut step_index = 0;
+    let mut row_start = 0;
+    let mut row_end = 0;
+
+    for len in row_lengths {
+        row_end += len;
+        if flat_index >= row_start && flat_index < row_end {
+            step_index = flat_index - row_start;
+            break;
+        }
+        row_index += 1;
+        row_start += len;
+    }
+    debug_assert!(row_index < row_lengths.len());
+    debug_assert!(step_index < row_lengths[row_index]);
+
+    (row_index, step_index)
+}
+
+pub fn grid_index_to_flat_index(grid_index: (usize, usize), row_lengths: &Vec<usize>) -> usize {
+    debug_assert!(grid_index.0 <= row_lengths.len());
+    // sum all the row lenghts up to our row
+    let steps_up_to_this_row = row_lengths[0..grid_index.0].iter().sum::<usize>();
+
+    let flat = steps_up_to_this_row + grid_index.1;
+
+    // allow an index just off end
+    debug_assert!(flat <= row_lengths.iter().sum());
+    return flat;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -194,5 +227,37 @@ mod tests {
         let expected = vec![vec![1], vec![2, 3], vec![4, 5, 6]];
 
         assert_eq!(grid, expected);
+    }
+
+    #[test]
+    fn test_index_conversions() {
+        let row_lengths: Vec<usize> = vec![1, 2, 3];
+        {
+            let flat_index = 5;
+            let result = flat_index_to_grid_index(flat_index, &row_lengths);
+            assert_eq!(result, (2, 2));
+            assert_eq!(grid_index_to_flat_index(result, &row_lengths), flat_index);
+        }
+        {
+            let flat_index = 0;
+            let result = flat_index_to_grid_index(flat_index, &row_lengths);
+            assert_eq!(result, (0, 0));
+            assert_eq!(grid_index_to_flat_index(result, &row_lengths), flat_index);
+        }
+        {
+            let flat_index = 1;
+            let result = flat_index_to_grid_index(flat_index, &row_lengths);
+            assert_eq!(result, (1, 0));
+            assert_eq!(grid_index_to_flat_index(result, &row_lengths), flat_index);
+        }
+        {
+            let row_lengths: Vec<usize> = vec![0, 0, 1];
+
+            let flat_index: usize = 0;
+            let result = flat_index_to_grid_index(flat_index, &row_lengths);
+
+            assert_eq!(result, (2, 0));
+            assert_eq!(grid_index_to_flat_index(result, &row_lengths), flat_index);
+        }
     }
 }
