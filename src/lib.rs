@@ -83,6 +83,15 @@ pub fn create_new_distribution_given_active_steps(active: &Vec<bool>) -> (Vec<us
     (result, num_active_steps(active))
 }
 
+// flatten a bunch of row sequences into one single sequence
+pub fn flatten(v: Vec<Vec<usize>>) -> Vec<usize> {
+    let mut result: Vec<usize> = Vec::new();
+    for x in v {
+        result.extend(x);
+    }
+    result
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -153,5 +162,12 @@ mod tests {
         assert!(thresh[1] < 2);
         assert!(thresh[4] < 2);
         assert!(density == 2);
+    }
+
+    #[test]
+    fn test_flatten_grid_into_single_row() {
+        let rows = vec![vec![1], vec![2, 3], vec![4, 5, 6]];
+        let result = flatten(rows);
+        assert_eq!(result, vec![1, 2, 3, 4, 5, 6]);
     }
 }
