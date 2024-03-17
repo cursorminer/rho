@@ -92,6 +92,20 @@ pub fn flatten(v: Vec<Vec<usize>>) -> Vec<usize> {
     result
 }
 
+// todo this could be generic?
+pub fn unflatten(flat: &Vec<usize>, row_lengths: &Vec<usize>) -> Vec<Vec<usize>> {
+    let mut grid: Vec<Vec<usize>> = Vec::new();
+    debug_assert!(row_lengths.iter().sum::<usize>() == flat.len());
+
+    let mut i_f = 0;
+    for len in row_lengths {
+        grid.push(flat[i_f..i_f + len].to_vec());
+        i_f += len;
+    }
+
+    grid
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -169,5 +183,16 @@ mod tests {
         let rows = vec![vec![1], vec![2, 3], vec![4, 5, 6]];
         let result = flatten(rows);
         assert_eq!(result, vec![1, 2, 3, 4, 5, 6]);
+    }
+
+    #[test]
+    fn unflatten_rows_into_grid() {
+        let flat: Vec<usize> = vec![1, 2, 3, 4, 5, 6];
+        let row_lengths: Vec<usize> = vec![1, 2, 3];
+        let grid = unflatten(&flat, &row_lengths);
+
+        let expected = vec![vec![1], vec![2, 3], vec![4, 5, 6]];
+
+        assert_eq!(grid, expected);
     }
 }
