@@ -139,6 +139,38 @@ pub fn grid_index_to_flat_index(grid_index: (usize, usize), row_lengths: &Vec<us
     return flat;
 }
 
+// appending a new step to the end of a row will change the steps arrays, the thresh arrays etc.
+// the new step is always inactive
+pub fn append_steps(
+    active: &mut Vec<bool>,
+    thresh: &mut Vec<usize>,
+    row_lengths: &mut Vec<usize>,
+    row_to_append: usize,
+    new_length: usize,
+) {
+    let num_to_insert = new_length - row_lengths[row_to_append];
+
+    // we need to insert the thresholds that do not exist yet, they're always the biggest
+    // (should they be? yes, because we want to preseve the patterns in the other bit)
+
+    let old_flat_length = row_lengths.iter().sum::<usize>();
+    let mut thresh_to_insert: Vec<_> = (old_flat_length..old_flat_length + num_to_insert).collect();
+
+    let mut rng = thread_rng();
+    thresh_to_insert.shuffle(&mut rng);
+
+    let active_to_insert = vec![false; num_to_insert];
+
+    let insert_position = grid_index_to_flat_index((row_to_append + 1, 0), row_lengths);
+
+    active.splice(insert_position..insert_position, active_to_insert);
+    thresh.splice(insert_position..insert_position, thresh_to_insert);
+
+    debug_assert!(active.len() == thresh.len());
+
+    row_lengths[row_to_append] = new_length;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -259,5 +291,25 @@ mod tests {
             assert_eq!(result, (2, 0));
             assert_eq!(grid_index_to_flat_index(result, &row_lengths), flat_index);
         }
+    }
+
+    #[test]
+    fn test_append_steps() {
+        let mut thresh: Vec<usize> = vec![0, 1, 2, 3, 4, 5];
+        let mut active = vec![true, true, true, true, true, true];
+
+        let mut row_lengths: Vec<usize> = vec![1, 2, 3];
+
+        // insert a step at end of second row
+        append_steps(&mut active, &mut thresh, &mut row_lengths, 1, 3);
+
+        let expected_active = vec![true, true, true, false, true, true, true];
+        assert_eq!(active, expected_active);
+
+        let expected_thresh: Vec<usize> = vec![0, 1, 2, 6, 3, 4, 5];
+        assert_eq!(thresh, expected_thresh);
+
+        let expected_row_lengths: Vec<usize> = std::vec![1, 3, 3];
+        assert_eq!(row_lengths, expected_row_lengths);
     }
 }
