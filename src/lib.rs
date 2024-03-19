@@ -312,4 +312,53 @@ mod tests {
         let expected_row_lengths: Vec<usize> = std::vec![1, 3, 3];
         assert_eq!(row_lengths, expected_row_lengths);
     }
+
+    /*
+        TEST_CASE("insert steps edge cases")
+    {
+      static constexpr auto kNumRows = size_t(3);
+
+      auto thresh = std::vector<size_t>{};
+      auto active = std::vector<bool>{};
+
+      auto rowLengths = std::array<size_t, kNumRows>{0, 0, 0};
+
+      // insert a step at end of second row
+      insertSteps(active, thresh, rowLengths, 1, 1);
+
+      auto expectedActive = std::vector<bool>{false};
+      CHECK(testing::allElementsEqual(active, expectedActive));
+
+      auto expectedThresh = std::vector<size_t>{0};
+      CHECK(testing::allElementsEqual(thresh, expectedThresh));
+
+      auto expectedRowLengths = std::array<size_t, kNumRows>{0, 1, 0};
+      CHECK(testing::allElementsEqual(rowLengths, expectedRowLengths));
+
+      // insert 2 steps
+      insertSteps(active, thresh, rowLengths, 1, 3);
+
+      expectedActive = std::vector<bool>{false, false, false};
+      CHECK(testing::allElementsEqual(active, expectedActive));
+
+      expectedThresh = std::vector<size_t>{0, 1, 2};
+      CHECK(thresh[1] >= 1);
+      CHECK(thresh[2] >= 1);
+
+      expectedRowLengths = std::array<size_t, kNumRows>{0, 3, 0};
+      CHECK(testing::allElementsEqual(rowLengths, expectedRowLengths));
+    }
+     */
+    #[test]
+    fn test_append_steps_edge_cases() {
+        let mut thresh = vec![];
+        let mut active = vec![];
+
+        let mut row_lengths: Vec<usize> = vec![0, 0, 0];
+
+        // insert a step at end of second row
+        append_steps(&mut active, &mut thresh, &mut row_lengths, 1, 1);
+        let expected_active = vec![false];
+        assert_eq!(active, expected_active);
+    }
 }
