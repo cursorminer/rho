@@ -2,7 +2,7 @@ extern crate rand;
 
 use crate::rand::prelude::SliceRandom;
 use rand::thread_rng;
-
+// todo this belongs somewhere else
 pub fn wrap(i: usize, max: usize) -> usize {
     if max == 0 {
         return 0;
@@ -19,188 +19,188 @@ pub fn create_new_distribution(n: usize) -> Vec<usize> {
     v.shuffle(&mut rng);
     v
 }
-
-// When the density is changed, the active steps change according to their threshold
-pub fn set_activations_for_new_density(
-    activations: &mut Vec<bool>,
-    step_thresh: &Vec<usize>,
-    density: usize,
-) {
-    for i in 0..activations.len() {
-        activations[i] = step_thresh[i] < density;
-    }
+struct GridActivations {
+    active: Vec<bool>,
+    thresh: Vec<usize>,
+    row_lengths: Vec<usize>,
+    // maybe density
 }
 
-fn num_active_steps(active: &Vec<bool>) -> usize {
-    active
-        .iter()
-        .fold(0, |acc, x| if *x { acc + 1 } else { acc })
-}
-
-//  adjust distribution  whilst respecting the changed step (step at index)
-// if something changed, returns true
-pub fn change_step_update_thresholds(
-    thresh: &mut Vec<usize>,
-    active: &mut Vec<bool>,
-    step_index: usize,
-    on: bool,
-) -> bool {
-    if active[step_index] == on {
-        return false;
-    }
-
-    active[step_index] = on;
-
-    //  find the index of the step that would have changed as a result of the new density
-    // and swap thresholds of the step we want to change with that
-    let density = if on {
-        num_active_steps(&active) - 1
-    } else {
-        num_active_steps(&active)
-    };
-
-    let i = thresh.iter().position(|&x| x == density).unwrap();
-
-    thresh.swap(step_index, i);
-    true
-}
-
-// a new random distribution, generate thresholds where only the provided steps exceed the threshold.
-// The threshold is returned as a density
-pub fn create_new_distribution_given_active_steps(active: &Vec<bool>) -> (Vec<usize>, usize) {
-    let n: usize = active.len().try_into().unwrap();
-    let mut result = create_new_distribution(n);
-    let mut dummy_active = vec![false; active.len()];
-
-    // now make sure lowest thresholds correspond to active steps activating steps one by
-    // one
-    // need to randomise order to avoid consecutive thresholds
-    let indices = create_new_distribution(n);
-    for i in indices {
-        change_step_update_thresholds(&mut result, &mut dummy_active, i, active[i]);
-    }
-
-    (result, num_active_steps(active))
-}
-
-// flatten a bunch of row sequences into one single sequence
-pub fn flatten(v: Vec<Vec<usize>>) -> Vec<usize> {
-    let mut result: Vec<usize> = Vec::new();
-    for x in v {
-        result.extend(x);
-    }
-    result
-}
-
-// todo this could be generic?
-pub fn unflatten(flat: &Vec<usize>, row_lengths: &Vec<usize>) -> Vec<Vec<usize>> {
-    let mut grid: Vec<Vec<usize>> = Vec::new();
-    debug_assert!(row_lengths.iter().sum::<usize>() == flat.len());
-
-    let mut i_f = 0;
-    for len in row_lengths {
-        grid.push(flat[i_f..i_f + len].to_vec());
-        i_f += len;
-    }
-
-    grid
-}
-
-pub fn flat_index_to_grid_index(flat_index: usize, row_lengths: &Vec<usize>) -> (usize, usize) {
-    let mut row_index = 0;
-    let mut step_index = 0;
-    let mut row_start = 0;
-    let mut row_end = 0;
-
-    for len in row_lengths {
-        row_end += len;
-        if flat_index >= row_start && flat_index < row_end {
-            step_index = flat_index - row_start;
-            break;
+impl GridActivations {
+    // When the density is changed, the active steps change according to their threshold
+    pub fn set_activations_for_new_density(&mut self, density: usize) {
+        for i in 0..self.active.len() {
+            self.active[i] = self.thresh[i] < density;
         }
-        row_index += 1;
-        row_start += len;
     }
-    debug_assert!(row_index < row_lengths.len());
-    debug_assert!(step_index < row_lengths[row_index]);
 
-    (row_index, step_index)
-}
+    fn num_active_steps(&self) -> usize {
+        self.active
+            .iter()
+            .fold(0, |acc, x| if *x { acc + 1 } else { acc })
+    }
 
-pub fn grid_index_to_flat_index(grid_index: (usize, usize), row_lengths: &Vec<usize>) -> usize {
-    debug_assert!(grid_index.0 <= row_lengths.len());
-    // sum all the row lenghts up to our row
-    let steps_up_to_this_row = row_lengths[0..grid_index.0].iter().sum::<usize>();
+    //  adjust distribution  whilst respecting the changed step (step at index)
+    // if something changed, returns true
+    pub fn change_step_update_thresholds(&mut self, step_index: usize, on: bool) -> bool {
+        if self.active[step_index] == on {
+            return false;
+        }
 
-    let flat = steps_up_to_this_row + grid_index.1;
+        self.active[step_index] = on;
 
-    // allow an index just off end
-    debug_assert!(flat <= row_lengths.iter().sum());
-    return flat;
-}
+        //  find the index of the step that would have changed as a result of the new density
+        // and swap thresholds of the step we want to change with that
+        let density = if on {
+            self.num_active_steps() - 1
+        } else {
+            self.num_active_steps()
+        };
 
-// appending a new step to the end of a row will change the steps arrays, the thresh arrays etc.
-// the new step is always inactive
-pub fn append_steps(
-    active: &mut Vec<bool>,
-    thresh: &mut Vec<usize>,
-    row_lengths: &mut Vec<usize>,
-    row_to_append: usize,
-    new_length: usize,
-) {
-    let num_to_insert = new_length - row_lengths[row_to_append];
+        let i = self.thresh.iter().position(|&x| x == density).unwrap();
 
-    // we need to insert the thresholds that do not exist yet, they're always the biggest
-    // (should they be? yes, because we want to preseve the patterns in the other bit)
+        self.thresh.swap(step_index, i);
+        true
+    }
 
-    let old_flat_length = row_lengths.iter().sum::<usize>();
+    // a new random distribution, generate thresholds where only the provided steps exceed the threshold.
+    // The threshold is returned as a density
+    pub fn create_new_distribution_given_active_steps(active: &Vec<bool>) -> (Vec<usize>, usize) {
+        let n: usize = active.len().try_into().unwrap();
+        let mut result = create_new_distribution(n);
+        let mut dummy_active = vec![false; active.len()];
 
-    let mut thresh_to_insert: Vec<_> = (old_flat_length..old_flat_length + num_to_insert).collect();
+        // now make sure lowest thresholds correspond to active steps activating steps one by
+        // one
+        // need to randomise order to avoid consecutive thresholds
+        let indices = create_new_distribution(n);
+        for i in indices {
+            change_step_update_thresholds(&mut result, &mut dummy_active, i, active[i]);
+        }
 
-    let mut rng = thread_rng();
-    thresh_to_insert.shuffle(&mut rng);
+        (result, num_active_steps(active))
+    }
 
-    let active_to_insert = vec![false; num_to_insert];
+    // flatten a bunch of row sequences into one single sequence
+    pub fn flatten(v: Vec<Vec<usize>>) -> Vec<usize> {
+        let mut result: Vec<usize> = Vec::new();
+        for x in v {
+            result.extend(x);
+        }
+        result
+    }
 
-    let insert_position = grid_index_to_flat_index((row_to_append + 1, 0), row_lengths);
+    // todo this could be generic?
+    pub fn unflatten(flat: &Vec<usize>, row_lengths: &Vec<usize>) -> Vec<Vec<usize>> {
+        let mut grid: Vec<Vec<usize>> = Vec::new();
+        debug_assert!(row_lengths.iter().sum::<usize>() == flat.len());
 
-    active.splice(insert_position..insert_position, active_to_insert);
-    thresh.splice(insert_position..insert_position, thresh_to_insert);
+        let mut i_f = 0;
+        for len in row_lengths {
+            grid.push(flat[i_f..i_f + len].to_vec());
+            i_f += len;
+        }
 
-    debug_assert!(active.len() == thresh.len());
+        grid
+    }
 
-    row_lengths[row_to_append] = new_length;
-}
+    pub fn flat_index_to_grid_index(flat_index: usize, row_lengths: &Vec<usize>) -> (usize, usize) {
+        let mut row_index = 0;
+        let mut step_index = 0;
+        let mut row_start = 0;
+        let mut row_end = 0;
 
-pub fn remove_steps(
-    active: &mut Vec<bool>,
-    thresh: &mut Vec<usize>,
-    row_lengths: &mut Vec<usize>,
-    row_to_remove_from: usize,
-    new_length: usize,
-) {
-    debug_assert!(new_length < row_lengths[row_to_remove_from]);
-    let num_to_remove = row_lengths[row_to_remove_from] - new_length;
-
-    // remove last one from each row, scaling the bigger thresholds as we go
-    for _i in 0..num_to_remove {
-        let last_in_row = row_lengths[row_to_remove_from] - 1;
-        let remove_position =
-            grid_index_to_flat_index((row_to_remove_from, last_in_row), &row_lengths);
-        let removed_threshold = thresh[remove_position];
-
-        // erase the active step and the thresh at that point
-        thresh.remove(remove_position);
-        active.remove(remove_position);
-
-        // all the thresholds higher than the removed one need to be reduced by one
-        thresh.iter_mut().for_each(|x| {
-            if *x > removed_threshold {
-                *x -= 1;
+        for len in row_lengths {
+            row_end += len;
+            if flat_index >= row_start && flat_index < row_end {
+                step_index = flat_index - row_start;
+                break;
             }
-        });
+            row_index += 1;
+            row_start += len;
+        }
+        debug_assert!(row_index < row_lengths.len());
+        debug_assert!(step_index < row_lengths[row_index]);
 
-        row_lengths[row_to_remove_from] -= 1;
+        (row_index, step_index)
+    }
+
+    pub fn grid_index_to_flat_index(grid_index: (usize, usize), row_lengths: &Vec<usize>) -> usize {
+        debug_assert!(grid_index.0 <= row_lengths.len());
+        // sum all the row lenghts up to our row
+        let steps_up_to_this_row = row_lengths[0..grid_index.0].iter().sum::<usize>();
+
+        let flat = steps_up_to_this_row + grid_index.1;
+
+        // allow an index just off end
+        debug_assert!(flat <= row_lengths.iter().sum());
+        return flat;
+    }
+
+    // appending a new step to the end of a row will change the steps arrays, the thresh arrays etc.
+    // the new step is always inactive
+    pub fn append_steps(
+        active: &mut Vec<bool>,
+        thresh: &mut Vec<usize>,
+        row_lengths: &mut Vec<usize>,
+        row_to_append: usize,
+        new_length: usize,
+    ) {
+        let num_to_insert = new_length - row_lengths[row_to_append];
+
+        // we need to insert the thresholds that do not exist yet, they're always the biggest
+        // (should they be? yes, because we want to preseve the patterns in the other bit)
+
+        let old_flat_length = row_lengths.iter().sum::<usize>();
+
+        let mut thresh_to_insert: Vec<_> =
+            (old_flat_length..old_flat_length + num_to_insert).collect();
+
+        let mut rng = thread_rng();
+        thresh_to_insert.shuffle(&mut rng);
+
+        let active_to_insert = vec![false; num_to_insert];
+
+        let insert_position = grid_index_to_flat_index((row_to_append + 1, 0), row_lengths);
+
+        active.splice(insert_position..insert_position, active_to_insert);
+        thresh.splice(insert_position..insert_position, thresh_to_insert);
+
+        debug_assert!(active.len() == thresh.len());
+
+        row_lengths[row_to_append] = new_length;
+    }
+
+    pub fn remove_steps(
+        active: &mut Vec<bool>,
+        thresh: &mut Vec<usize>,
+        row_lengths: &mut Vec<usize>,
+        row_to_remove_from: usize,
+        new_length: usize,
+    ) {
+        debug_assert!(new_length < row_lengths[row_to_remove_from]);
+        let num_to_remove = row_lengths[row_to_remove_from] - new_length;
+
+        // remove last one from each row, scaling the bigger thresholds as we go
+        for _i in 0..num_to_remove {
+            let last_in_row = row_lengths[row_to_remove_from] - 1;
+            let remove_position =
+                grid_index_to_flat_index((row_to_remove_from, last_in_row), &row_lengths);
+            let removed_threshold = thresh[remove_position];
+
+            // erase the active step and the thresh at that point
+            thresh.remove(remove_position);
+            active.remove(remove_position);
+
+            // all the thresholds higher than the removed one need to be reduced by one
+            thresh.iter_mut().for_each(|x| {
+                if *x > removed_threshold {
+                    *x -= 1;
+                }
+            });
+
+            row_lengths[row_to_remove_from] -= 1;
+        }
     }
 }
 
