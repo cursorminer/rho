@@ -239,48 +239,62 @@ mod tests {
         seq.set_activations_for_new_density(5);
         assert_eq!(seq.active, vec![true, true, true, true, true]);
     }
-    /*
     #[test]
     fn test_num_active_steps() {
-        assert_eq!(num_active_steps(&vec![false, true, false, false, true]), 2);
-        assert_eq!(num_active_steps(&vec![true, true, false, false, true]), 3);
+        let mut seq = GridActivations {
+            active: vec![false, true, false, false, true],
+            thresh: vec![0, 1, 2, 4, 3],
+            row_lengths: vec![1, 2, 3],
+        };
+
+        assert_eq!(seq.num_active_steps(), 2);
+        seq.active = vec![false, true, false, true, true];
+        assert_eq!(seq.num_active_steps(), 3);
     }
 
     #[test]
     fn test_change_step() {
-        let mut thresh: Vec<usize> = vec![0, 1, 2, 3, 4];
-        let mut active = vec![false, false, false, false, false];
+        let mut seq = GridActivations {
+            active: vec![false, false, false, false, false],
+            thresh: vec![0, 1, 2, 3, 4],
+            row_lengths: vec![1, 2, 3],
+        };
+
         let density: usize = 1;
 
         // smallest density only has one active step
-        set_activations_for_new_density(&mut active, &thresh, density);
-        assert_eq!(active, vec![true, false, false, false, false]);
+        seq.set_activations_for_new_density(density);
+        assert_eq!(seq.active, vec![true, false, false, false, false]);
 
         // now set step 4 to active
-        change_step_update_thresholds(&mut thresh, &mut active, 4, true);
+        seq.change_step_update_thresholds(4, true);
 
         //expect that step 4 will get thresh of 1 and density qill be 2
-        assert_eq!(active, vec![true, false, false, false, true]);
-        assert_eq!(thresh, vec![0, 4, 2, 3, 1]);
+        assert_eq!(seq.active, vec![true, false, false, false, true]);
+        assert_eq!(seq.thresh, vec![0, 4, 2, 3, 1]);
 
         // turn off step 0
-        change_step_update_thresholds(&mut thresh, &mut active, 0, false);
+        seq.change_step_update_thresholds(0, false);
         // expect that step 0 will be turned off
-        assert_eq!(active, vec![false, false, false, false, true]);
+        assert_eq!(seq.active, vec![false, false, false, false, true]);
         // and the will be set to 1, swapped with the last density 0
-        assert_eq!(thresh, vec![1, 4, 2, 3, 0]);
+        assert_eq!(seq.thresh, vec![1, 4, 2, 3, 0]);
     }
 
     #[test]
     fn test_create_new_distribution_given_active_steps() {
-        let active = vec![false, true, false, false, true];
-        // 2, 0, 4, 3, 1
-        let (thresh, density) = create_new_distribution_given_active_steps(&active);
+        let mut seq = GridActivations {
+            active: vec![false, true, false, false, true],
+            thresh: vec![0, 1, 2, 3, 4],
+            row_lengths: vec![1, 2, 3],
+        };
 
-        assert!(thresh[0] >= 2);
-        assert!(thresh[1] < 2);
-        assert!(thresh[4] < 2);
-        assert!(density == 2);
+        // 2, 0, 4, 3, 1
+        seq.create_new_distribution_given_active_steps();
+
+        assert!(seq.thresh[0] >= 2);
+        assert!(seq.thresh[1] < 2);
+        assert!(seq.thresh[4] < 2);
     }
 
     #[test]
@@ -335,54 +349,57 @@ mod tests {
 
     #[test]
     fn test_append_steps() {
-        let mut thresh: Vec<usize> = vec![0, 1, 2, 3, 4, 5];
-        let mut active = vec![true, true, true, true, true, true];
-
-        let mut row_lengths: Vec<usize> = vec![1, 2, 3];
+        let mut seq = GridActivations {
+            active: vec![true, true, true, true, true, true],
+            thresh: vec![0, 1, 2, 3, 4, 5],
+            row_lengths: vec![1, 2, 3],
+        };
 
         // insert a step at end of second row
-        append_steps(&mut active, &mut thresh, &mut row_lengths, 1, 3);
+        seq.append_steps(1, 3);
 
         let expected_active = vec![true, true, true, false, true, true, true];
-        assert_eq!(active, expected_active);
+        assert_eq!(seq.active, expected_active);
 
         let expected_thresh: Vec<usize> = vec![0, 1, 2, 6, 3, 4, 5];
-        assert_eq!(thresh, expected_thresh);
+        assert_eq!(seq.thresh, expected_thresh);
 
         let expected_row_lengths: Vec<usize> = std::vec![1, 3, 3];
-        assert_eq!(row_lengths, expected_row_lengths);
+        assert_eq!(seq.row_lengths, expected_row_lengths);
     }
 
     #[test]
     fn test_append_steps_edge_cases() {
-        let mut thresh = vec![];
-        let mut active = vec![];
-
-        let mut row_lengths: Vec<usize> = vec![0, 0, 0];
+        let mut seq = GridActivations {
+            active: vec![],
+            thresh: vec![],
+            row_lengths: vec![0, 0, 0],
+        };
 
         // insert a step at end of second row
-        append_steps(&mut active, &mut thresh, &mut row_lengths, 1, 1);
+        seq.append_steps(1, 1);
         let expected_active = vec![false];
-        assert_eq!(active, expected_active);
+        assert_eq!(seq.active, expected_active);
     }
 
     #[test]
     fn test_remove_steps() {
-        let mut thresh: Vec<usize> = vec![0, 1, 2, 3, 4, 5];
-        let mut active = vec![true, true, true, false, false, false];
-        let mut row_lengths = vec![1, 2, 3];
+        let mut seq = GridActivations {
+            active: vec![true, true, true, false, false, false],
+            thresh: vec![0, 1, 2, 3, 4, 5],
+            row_lengths: vec![1, 2, 3],
+        };
 
         // remove the second element of the second row, the third in the flat list
-        remove_steps(&mut active, &mut thresh, &mut row_lengths, 1, 1);
+        seq.remove_steps(1, 1);
 
         let expected_active = vec![true, true, false, false, false];
-        assert_eq!(active, expected_active);
+        assert_eq!(seq.active, expected_active);
 
         let expected_thresh: Vec<usize> = vec![0, 1, 2, 3, 4];
-        assert_eq!(thresh, expected_thresh);
+        assert_eq!(seq.thresh, expected_thresh);
 
         let expected_row_lengths: Vec<usize> = vec![1, 1, 3];
-        assert_eq!(row_lengths, expected_row_lengths);
+        assert_eq!(seq.row_lengths, expected_row_lengths);
     }
-    */
 }
