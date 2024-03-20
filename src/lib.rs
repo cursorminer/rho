@@ -154,6 +154,7 @@ pub fn append_steps(
     // (should they be? yes, because we want to preseve the patterns in the other bit)
 
     let old_flat_length = row_lengths.iter().sum::<usize>();
+
     let mut thresh_to_insert: Vec<_> = (old_flat_length..old_flat_length + num_to_insert).collect();
 
     let mut rng = thread_rng();
@@ -169,6 +170,38 @@ pub fn append_steps(
     debug_assert!(active.len() == thresh.len());
 
     row_lengths[row_to_append] = new_length;
+}
+
+pub fn remove_steps(
+    active: &mut Vec<bool>,
+    thresh: &mut Vec<usize>,
+    row_lengths: &mut Vec<usize>,
+    row_to_remove_from: usize,
+    new_length: usize,
+) {
+    debug_assert!(new_length < row_lengths[row_to_remove_from]);
+    let num_to_remove = row_lengths[row_to_remove_from] - new_length;
+
+    // remove last one from each row, scaling the bigger thresholds as we go
+    for _i in 0..num_to_remove {
+        let last_in_row = row_lengths[row_to_remove_from] - 1;
+        let remove_position =
+            grid_index_to_flat_index((row_to_remove_from, last_in_row), &row_lengths);
+        let removed_threshold = thresh[remove_position];
+
+        // erase the active step and the thresh at that point
+        thresh.remove(remove_position);
+        active.remove(remove_position);
+
+        // all the thresholds higher than the removed one need to be reduced by one
+        thresh.iter_mut().for_each(|x| {
+            if *x > removed_threshold {
+                *x -= 1;
+            }
+        });
+
+        row_lengths[row_to_remove_from] -= 1;
+    }
 }
 
 #[cfg(test)]
@@ -313,42 +346,6 @@ mod tests {
         assert_eq!(row_lengths, expected_row_lengths);
     }
 
-    /*
-        TEST_CASE("insert steps edge cases")
-    {
-      static constexpr auto kNumRows = size_t(3);
-
-      auto thresh = std::vector<size_t>{};
-      auto active = std::vector<bool>{};
-
-      auto rowLengths = std::array<size_t, kNumRows>{0, 0, 0};
-
-      // insert a step at end of second row
-      insertSteps(active, thresh, rowLengths, 1, 1);
-
-      auto expectedActive = std::vector<bool>{false};
-      CHECK(testing::allElementsEqual(active, expectedActive));
-
-      auto expectedThresh = std::vector<size_t>{0};
-      CHECK(testing::allElementsEqual(thresh, expectedThresh));
-
-      auto expectedRowLengths = std::array<size_t, kNumRows>{0, 1, 0};
-      CHECK(testing::allElementsEqual(rowLengths, expectedRowLengths));
-
-      // insert 2 steps
-      insertSteps(active, thresh, rowLengths, 1, 3);
-
-      expectedActive = std::vector<bool>{false, false, false};
-      CHECK(testing::allElementsEqual(active, expectedActive));
-
-      expectedThresh = std::vector<size_t>{0, 1, 2};
-      CHECK(thresh[1] >= 1);
-      CHECK(thresh[2] >= 1);
-
-      expectedRowLengths = std::array<size_t, kNumRows>{0, 3, 0};
-      CHECK(testing::allElementsEqual(rowLengths, expectedRowLengths));
-    }
-     */
     #[test]
     fn test_append_steps_edge_cases() {
         let mut thresh = vec![];
@@ -360,5 +357,24 @@ mod tests {
         append_steps(&mut active, &mut thresh, &mut row_lengths, 1, 1);
         let expected_active = vec![false];
         assert_eq!(active, expected_active);
+    }
+
+    #[test]
+    fn test_remove_steps() {
+        let mut thresh: Vec<usize> = vec![0, 1, 2, 3, 4, 5];
+        let mut active = vec![true, true, true, false, false, false];
+        let mut row_lengths = vec![1, 2, 3];
+
+        // remove the second element of the second row, the third in the flat list
+        remove_steps(&mut active, &mut thresh, &mut row_lengths, 1, 1);
+
+        let expected_active = vec![true, true, false, false, false];
+        assert_eq!(active, expected_active);
+
+        let expected_thresh: Vec<usize> = vec![0, 1, 2, 3, 4];
+        assert_eq!(thresh, expected_thresh);
+
+        let expected_row_lengths: Vec<usize> = vec![1, 1, 3];
+        assert_eq!(row_lengths, expected_row_lengths);
     }
 }
