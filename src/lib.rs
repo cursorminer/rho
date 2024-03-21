@@ -2,6 +2,13 @@ extern crate rand;
 
 use crate::rand::prelude::SliceRandom;
 use rand::thread_rng;
+
+// TODOs
+//
+// put free functions in a different module
+// understand how lib, modules, crates and tests should be organized
+// add the RowAssigner type and impl
+
 // todo this belongs somewhere else
 pub fn wrap(i: usize, max: usize) -> usize {
     if max == 0 {
