@@ -188,6 +188,20 @@ impl GridArp {
         self.rows.iter_mut().for_each(|row| row.notes.clear());
     }
 
+    // returns a vector of indices for the active notes (will always be in ascending order)
+    pub fn active_row_indices(&self) -> Vec<usize> {
+        self.rows
+            .iter()
+            .enumerate()
+            .filter(|(_, row)| row.active)
+            .map(|(i, _)| i)
+            .collect()
+    }
+
+    pub fn num_active_rows(&self) -> usize {
+        self.active_row_indices().len()
+    }
+
     // "private" stuff
     fn invert_active_row_index(index: usize) {}
 
@@ -209,6 +223,20 @@ impl GridArp {
             None => {
                 return false;
             }
+        }
+    }
+
+    // when anything changes, reassign the notes to the rows
+    fn update_note_to_row_mapping(&mut self) {
+        self.clear_all_note_assignements();
+
+        // loop through the active rows assigning notes this depends on the various modes
+        let mut note_index = 0;
+        let mut row_index = 0;
+        let num_notes = self.active_notes.len();
+
+        if num_notes == 0 || self.num_active_rows() == 0 {
+            return;
         }
     }
 }
@@ -622,7 +650,7 @@ mod tests {
     }
 
     #[test]
-    fn test_grid_arp() {
+    fn test_grid_arp_note_on() {
         let mut ga = GridArp::new();
         assert_eq!(ga.active_notes, vec![]);
         assert!(!ga.row_has_note_and_active(0));
@@ -635,5 +663,14 @@ mod tests {
 
         assert_eq!(ga.active_notes.len(), 1);
         assert_eq!(ga.active_notes[0], Some(note));
+    }
+
+    fn test_grid_arp_row_active() {
+        let mut ga = GridArp::new();
+        ga.set_row_active(1, true);
+        assert_eq!(ga.num_active_rows(), 1);
+        assert_eq!(ga.active_row_indices(), vec![1]);
+        assert_eq!(ga.num_active_rows(), 3);
+        assert_eq!(ga.active_row_indices(), vec![1, 3]);
     }
 }
