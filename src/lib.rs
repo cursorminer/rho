@@ -5,11 +5,10 @@ use rand::thread_rng;
 use std::cmp::PartialOrd;
 
 // a midi note
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 struct Note {
     note_number: usize,
     velocity: usize,
-    is_pinned: bool,
 }
 
 impl PartialEq for Note {
@@ -114,7 +113,7 @@ const NUM_ROWS: usize = 4;
 // This class keeps track of the active notes, assigns notes to rows, and handles which note comes next for a given row.
 // Probably should be renamed to reflect that fact...
 struct GridArp {
-    active_notes: Vec<Note>,
+    active_notes: Vec<Option<Note>>, // the none state means that we have an empty row but others are pinned above it
     rows: [Row; NUM_ROWS],
     note_ordering_mode: NoteOrdering,
     note_wrapping_mode: NoteWrapping,
@@ -139,45 +138,72 @@ impl GridArp {
         }
     }
 
-    pub fn noteOn(note_number: usize, velocity: usize) {
+    pub fn note_on(&mut self, note_number: usize, velocity: usize) {
         let new_note = Note {
             note_number,
             velocity,
         };
 
-        // if we have an active note with kEmptyNote that means that the hold mode
-        // self an empty slot that we should fill first
+        if !self.fill_empty_note_if_available(new_note) {
+            match self.note_ordering_mode {
+                NoteOrdering::LowestFirst => {
+                    // insert new note before any note higher than it
+                    // we want the first element that is bigger, then insert before that
+                    let pos = self.active_notes.iter().position(|x| match x {
+                        Some(x) => *x > new_note,
+                        None => false,
+                    });
+
+                    match pos {
+                        Some(pos) => {
+                            self.active_notes.insert(pos, Some(new_note));
+                        }
+                        None => {}
+                    }
+                }
+                NoteOrdering::OldestFirst => {
+                    // its the newest so it goes on top
+                    self.active_notes.push(Some(new_note));
+                }
+            }
+        }
+
+        // update_note_to_row_mapping();
     }
 
     pub fn row_has_note_and_active(&self, index: usize) -> bool {
         index < NUM_ROWS && self.rows[index].active && self.rows[index].notes.len() > 0
     }
 
-    pub fn set_row_active(&self, row_number: usize, active: bool)
-    {
-        if row_number < NUM_ROWS
-        {
+    pub fn set_row_active(&mut self, row_number: usize, active: bool) {
+        if row_number < NUM_ROWS {
             self.rows[row_number].active = active;
         }
     }
 
     // "private" stuff
-    fn invert_active_row_index(index: usize)
-    {
-    }
+    fn invert_active_row_index(index: usize) {}
 
     // try to find an unassigned row to assign a note to, if can't return false
     // this active note thing sucks...
-    fn fill_empty_note_if_available(note: Note) -> bool {
-        {
-            let pos = self.active_notes.iter().position(|&n| condition);
-            match pos
-            {
-                Some(p) -> assign note to active notes
-                None() -> return false;
-            }
+    fn fill_empty_note_if_available(&mut self, note: Note) -> bool {
+        // todo there could be multiple empty rows, in which case we should respect the NoteOrdering
+        // perhaps
+        let pos = self.active_notes.iter().position(|n| match n {
+            None => false,
+            Some(_) => true,
+        });
 
+        match pos {
+            Some(pos) => {
+                self.active_notes[pos] = Some(note);
+                return true;
+            }
+            None => {
+                return false;
+            }
         }
+    }
 }
 
 //--------------------------------------------------------------------------------
@@ -590,8 +616,16 @@ mod tests {
 
     #[test]
     fn test_grid_arp() {
-        let ga = GridArp::new();
+        let mut ga = GridArp::new();
         assert_eq!(ga.active_notes, vec![]);
         assert!(!ga.row_has_note_and_active(0));
+
+        let note = Note {
+            note_number: 69,
+            velocity: 100,
+        };
+        ga.note_on(69, 100);
+
+        assert!(ga.active_notes.len() == 1);
     }
 }
