@@ -96,9 +96,30 @@ pub fn stack_low(i: usize, max: usize) -> usize {
     }
 }
 
+const NUM_ROWS: usize = 4;
+
 // This class keeps track of the active notes, assigns notes to rows, and handles which note comes next for a given row.
 // Probably should be renamed to reflect that fact...
-struct GridArp {}
+struct GridArp {
+    active_notes: Vec<Note>,
+    rows: [Row; NUM_ROWS],
+    note_ordering_mode: NoteOrdering,
+    note_wrapping_mode: NoteWrapping,
+
+    hold_notes_enabled: bool,
+    auto_octave_enabled: bool,
+    invert_rows_enabled: bool,
+}
+
+impl GridArp {
+    pub fn new(&mut self) {
+        self.note_ordering_mode = NoteOrdering::LowestFirst;
+        self.note_wrapping_mode = NoteWrapping::Fold;
+        self.hold_notes_enabled = false;
+        self.auto_octave_enabled = false;
+        self.invert_rows_enabled = false;
+    }
+}
 
 // TODOs
 //
