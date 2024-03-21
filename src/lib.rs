@@ -158,7 +158,10 @@ impl GridArp {
                         Some(pos) => {
                             self.active_notes.insert(pos, Some(new_note));
                         }
-                        None => {}
+                        None => {
+                            // in this case, no note was higher than this one so just push it on
+                            self.active_notes.push(Some(new_note));
+                        }
                     }
                 }
                 NoteOrdering::OldestFirst => {
@@ -179,6 +182,10 @@ impl GridArp {
         if row_number < NUM_ROWS {
             self.rows[row_number].active = active;
         }
+    }
+
+    pub fn clear_all_note_assignements(&mut self) {
+        self.rows.iter_mut().for_each(|row| row.notes.clear());
     }
 
     // "private" stuff
@@ -626,6 +633,7 @@ mod tests {
         };
         ga.note_on(69, 100);
 
-        assert!(ga.active_notes.len() == 1);
+        assert_eq!(ga.active_notes.len(), 1);
+        assert_eq!(ga.active_notes[0], Some(note));
     }
 }
