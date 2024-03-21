@@ -2,6 +2,103 @@ extern crate rand;
 
 use crate::rand::prelude::SliceRandom;
 use rand::thread_rng;
+use std::cmp::PartialOrd;
+
+// a midi note
+struct Note {
+    note_number: usize,
+    velocity: usize,
+}
+
+impl PartialEq for Note {
+    fn eq(&self, other: &Self) -> bool {
+        self.note_number == other.note_number
+    }
+}
+
+impl PartialOrd for Note {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.note_number.cmp(&other.note_number))
+    }
+}
+
+// How midi notes are assigned to rows
+enum NoteOrdering {
+    OldestFirst,
+    LowestFirst,
+}
+
+// if held notes are pinned to rows, or if changes in held notes reassign rows dynamically
+enum RowAssign {
+    Dynamic,
+    Hold,
+}
+
+enum NoteWrapping {
+    None,
+    Wrap,
+    Fold,
+    StackHigh,
+    StackLow,
+}
+
+// data structure for a single row of the sequencer
+// this could implement an iterator trait, and next does the right things...
+struct Row {
+    active: bool,            // is the row on or off
+    notes: Vec<Note>,        // the midi notes associated with the row
+    rotation_counter: usize, // which of notes to play next
+}
+
+pub fn increment_and_wrap(i: usize, wrap_before: usize) -> usize {
+    if i + 1 >= wrap_before {
+        0
+    } else {
+        i + 1
+    }
+}
+
+// folds over before end so that starts going down again
+// note that it repeats the top note before descending:
+//     00    00 max = 2
+//    0  0  0
+//   0    00
+// i 0123456789
+// because this sounds nice!
+// does not work for i > 2 * max
+pub fn fold_into_range(i: usize, max: usize) -> usize {
+    if max == 0 {
+        return 0;
+    }
+    let rep = (max + 1) * 2 - 1;
+    let a = i % rep;
+
+    if a <= max {
+        a
+    } else {
+        rep - a
+    }
+}
+
+pub fn stack_high(i: usize, max: usize) -> usize {
+    if i > max {
+        max
+    } else {
+        i
+    }
+}
+
+pub fn stack_low(i: usize, max: usize) -> usize {
+    if i > max {
+        0
+    } else {
+        i
+    }
+}
+
+// This class keeps track of the active notes, assigns notes to rows, and handles which note comes next for a given row.
+// Probably should be renamed to reflect that fact...
+struct GridArp {}
 
 // TODOs
 //
