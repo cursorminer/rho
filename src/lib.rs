@@ -5,9 +5,11 @@ use rand::thread_rng;
 use std::cmp::PartialOrd;
 
 // a midi note
+#[derive(Debug)]
 struct Note {
     note_number: usize,
     velocity: usize,
+    is_pinned: bool,
 }
 
 impl PartialEq for Note {
@@ -44,10 +46,21 @@ enum NoteWrapping {
 
 // data structure for a single row of the sequencer
 // this could implement an iterator trait, and next does the right things...
+#[derive(Debug)]
 struct Row {
     active: bool,            // is the row on or off
     notes: Vec<Note>,        // the midi notes associated with the row
     rotation_counter: usize, // which of notes to play next
+}
+
+impl Default for Row {
+    fn default() -> Self {
+        Row {
+            active: true,
+            notes: vec![],
+            rotation_counter: 0,
+        }
+    }
 }
 
 pub fn increment_and_wrap(i: usize, wrap_before: usize) -> usize {
@@ -112,15 +125,62 @@ struct GridArp {
 }
 
 impl GridArp {
-    pub fn new(&mut self) {
-        self.note_ordering_mode = NoteOrdering::LowestFirst;
-        self.note_wrapping_mode = NoteWrapping::Fold;
-        self.hold_notes_enabled = false;
-        self.auto_octave_enabled = false;
-        self.invert_rows_enabled = false;
+    pub fn new() -> Self {
+        let rows_vec: Vec<Row> = (0..4).map(|_| Row::default()).collect();
+        let rows_array: [Row; 4] = rows_vec.try_into().unwrap();
+        GridArp {
+            active_notes: vec![],
+            rows: rows_array,
+            note_ordering_mode: NoteOrdering::LowestFirst,
+            note_wrapping_mode: NoteWrapping::Fold,
+            hold_notes_enabled: false,
+            auto_octave_enabled: false,
+            invert_rows_enabled: false,
+        }
     }
+
+    pub fn noteOn(note_number: usize, velocity: usize) {
+        let new_note = Note {
+            note_number,
+            velocity,
+        };
+
+        // if we have an active note with kEmptyNote that means that the hold mode
+        // self an empty slot that we should fill first
+    }
+
+    pub fn row_has_note_and_active(&self, index: usize) -> bool {
+        index < NUM_ROWS && self.rows[index].active && self.rows[index].notes.len() > 0
+    }
+
+    pub fn set_row_active(&self, row_number: usize, active: bool)
+    {
+        if row_number < NUM_ROWS
+        {
+            self.rows[row_number].active = active;
+        }
+    }
+
+    // "private" stuff
+    fn invert_active_row_index(index: usize)
+    {
+    }
+
+    // try to find an unassigned row to assign a note to, if can't return false
+    // this active note thing sucks...
+    fn fill_empty_note_if_available(note: Note) -> bool {
+        {
+            let pos = self.active_notes.iter().position(|&n| condition);
+            match pos
+            {
+                Some(p) -> assign note to active notes
+                None() -> return false;
+            }
+
+        }
 }
 
+//--------------------------------------------------------------------------------
 // TODOs
 //
 // put free functions in a different module
@@ -526,5 +586,12 @@ mod tests {
 
         let expected_row_lengths: Vec<usize> = vec![1, 1, 3];
         assert_eq!(seq.row_lengths, expected_row_lengths);
+    }
+
+    #[test]
+    fn test_grid_arp() {
+        let ga = GridArp::new();
+        assert_eq!(ga.active_notes, vec![]);
+        assert!(!ga.row_has_note_and_active(0));
     }
 }
