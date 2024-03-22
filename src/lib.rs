@@ -169,27 +169,24 @@ impl GridArp {
 
     pub fn note_off(&mut self, note_number: usize) {
         // find the note number and remove it, assume there could be more than one
-        let mut notes_to_remove = true;
-        while notes_to_remove {
-            let pos = self
-                .active_notes
-                .iter()
-                .position(|note| note.map_or(false, |n| n.note_number == note_number));
 
-            if let Some(pos) = pos {
-                if self.hold_notes_enabled {
-                    // set the note to none, to pin its position in the row
-                    self.active_notes[pos] = None;
-                    // if all notes have gone, nothing needs pinning so reset the whole thing
-                    if self.all_notes_empty() {
-                        self.active_notes.clear();
-                    }
-                } else {
-                    self.active_notes.remove(pos);
+        if self.hold_notes_enabled {
+            self.active_notes.iter_mut().for_each(|note| {
+                if note
+                    .as_ref()
+                    .map_or(false, |n| n.note_number == note_number)
+                {
+                    *note = None;
                 }
-            } else {
-                notes_to_remove = false;
+            });
+
+            if self.all_notes_empty() {
+                self.active_notes.clear();
             }
+        } else {
+            // retain only those where the note number does not match, retain none notes too
+            self.active_notes
+                .retain(|note| note.map_or(true, |n| n.note_number != note_number));
         }
     }
 
