@@ -147,31 +147,54 @@ impl GridArp {
         if !self.fill_empty_note_if_available(new_note) {
             match self.note_ordering_mode {
                 NoteOrdering::LowestFirst => {
-                    // insert new note before any note higher than it
-                    // we want the first element that is bigger, then insert before that
-                    let pos = self.active_notes.iter().position(|x| match x {
-                        Some(x) => *x > new_note,
-                        None => false,
-                    });
+                    let pos = self
+                        .active_notes
+                        .iter()
+                        .position(|x| x.map_or(false, |x| x > new_note));
 
-                    match pos {
-                        Some(pos) => {
-                            self.active_notes.insert(pos, Some(new_note));
-                        }
-                        None => {
-                            // in this case, no note was higher than this one so just push it on
-                            self.active_notes.push(Some(new_note));
-                        }
+                    if let Some(pos) = pos {
+                        self.active_notes.insert(pos, Some(new_note));
+                    } else {
+                        self.active_notes.push(Some(new_note));
                     }
                 }
                 NoteOrdering::OldestFirst => {
-                    // its the newest so it goes on top
                     self.active_notes.push(Some(new_note));
                 }
             }
         }
 
         // update_note_to_row_mapping();
+    }
+
+    pub fn note_off(&mut self, note_number: usize) {
+        // find the note number and remove it, assume there could be more than one
+        let mut notes_to_remove = true;
+        while notes_to_remove {
+            let pos = self
+                .active_notes
+                .iter()
+                .position(|note| note.map_or(false, |n| n.note_number == note_number));
+
+            if let Some(pos) = pos {
+                if self.hold_notes_enabled {
+                    // set the note to none, to pin its position in the row
+                    self.active_notes[pos] = None;
+                    // if all notes have gone, nothing needs pinning so reset the whole thing
+                    if self.all_notes_empty() {
+                        self.active_notes.clear();
+                    }
+                } else {
+                    self.active_notes.remove(pos);
+                }
+            } else {
+                notes_to_remove = false;
+            }
+        }
+    }
+
+    pub fn all_notes_empty(&self) -> bool {
+        self.active_notes.iter().all(Option::is_none)
     }
 
     pub fn row_has_note_and_active(&self, index: usize) -> bool {
@@ -211,9 +234,11 @@ impl GridArp {
         // todo there could be multiple empty rows, in which case we should respect the NoteOrdering
         // perhaps
         let pos = self.active_notes.iter().position(|n| match n {
-            None => false,
-            Some(_) => true,
+            None => true,
+            Some(_) => false,
         });
+
+        // if Some(pos) then we found an empty slot
 
         match pos {
             Some(pos) => {
@@ -650,7 +675,7 @@ mod tests {
     }
 
     #[test]
-    fn test_grid_arp_note_on() {
+    fn test_grid_arp_note_on_off() {
         let mut ga = GridArp::new();
         assert_eq!(ga.active_notes, vec![]);
         assert!(!ga.row_has_note_and_active(0));
@@ -659,10 +684,49 @@ mod tests {
             note_number: 69,
             velocity: 100,
         };
+        let note2 = Note {
+            note_number: 70,
+            velocity: 100,
+        };
+
+        // one note on
         ga.note_on(69, 100);
 
         assert_eq!(ga.active_notes.len(), 1);
         assert_eq!(ga.active_notes[0], Some(note));
+
+        // a note on that's higher than previous goes at end
+        ga.note_on(70, 100);
+
+        // two active notes
+        assert_eq!(ga.active_notes.len(), 2);
+        assert_eq!(ga.active_notes[0], Some(note));
+        assert_eq!(ga.active_notes[1], Some(note2));
+
+        ga.note_off(69);
+        assert_eq!(ga.active_notes.len(), 1);
+        assert_eq!(ga.active_notes[0], Some(note2));
+
+        ga.note_off(70);
+        assert!(ga.active_notes.is_empty());
+
+        ga.hold_notes_enabled = true;
+
+        ga.note_on(69, 100);
+
+        assert_eq!(ga.active_notes.len(), 1);
+        assert_eq!(ga.active_notes[0], Some(note));
+
+        // a note on that's higher than previous goes at end
+        ga.note_on(70, 100);
+
+        ga.note_off(69);
+        assert_eq!(ga.active_notes.len(), 2);
+        assert_eq!(ga.active_notes[0], None);
+        assert_eq!(ga.active_notes[1], Some(note2));
+
+        ga.note_off(70);
+        assert!(ga.active_notes.is_empty());
     }
 
     fn test_grid_arp_row_active() {
@@ -670,7 +734,7 @@ mod tests {
         ga.set_row_active(1, true);
         assert_eq!(ga.num_active_rows(), 1);
         assert_eq!(ga.active_row_indices(), vec![1]);
-        assert_eq!(ga.num_active_rows(), 3);
+        assert_eq!(ga.num_active_rows(), 2);
         assert_eq!(ga.active_row_indices(), vec![1, 3]);
     }
 }
