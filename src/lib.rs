@@ -164,7 +164,7 @@ impl GridArp {
             }
         }
 
-        // update_note_to_row_mapping();
+        self.update_note_to_row_mapping();
     }
 
     pub fn note_off(&mut self, note_number: usize) {
@@ -180,7 +180,7 @@ impl GridArp {
                 }
             });
 
-            if self.all_notes_empty() {
+            if self.all_active_notes_empty() {
                 self.active_notes.clear();
             }
         } else {
@@ -188,9 +188,11 @@ impl GridArp {
             self.active_notes
                 .retain(|note| note.map_or(true, |n| n.note_number != note_number));
         }
+
+        self.update_note_to_row_mapping();
     }
 
-    pub fn all_notes_empty(&self) -> bool {
+    pub fn all_active_notes_empty(&self) -> bool {
         self.active_notes.iter().all(Option::is_none)
     }
 
@@ -204,7 +206,7 @@ impl GridArp {
         }
     }
 
-    pub fn clear_all_note_assignements(&mut self) {
+    pub fn clear_all_note_assignments(&mut self) {
         self.rows.iter_mut().for_each(|row| row.notes.clear());
     }
 
@@ -250,7 +252,7 @@ impl GridArp {
 
     // when anything changes, reassign the notes to the rows
     fn update_note_to_row_mapping(&mut self) {
-        self.clear_all_note_assignements();
+        self.clear_all_note_assignments();
 
         // loop through the active rows assigning notes this depends on the various modes
         let mut note_index = 0;
@@ -724,6 +726,29 @@ mod tests {
 
         ga.note_off(70);
         assert!(ga.active_notes.is_empty());
+    }
+
+    #[test]
+    fn test_grid_arp_note_row_mapping() {
+        let mut ga = GridArp::new();
+        assert_eq!(ga.active_notes, vec![]);
+        assert!(!ga.row_has_note_and_active(0));
+
+        let note = Note {
+            note_number: 69,
+            velocity: 100,
+        };
+        let note2 = Note {
+            note_number: 70,
+            velocity: 100,
+        };
+
+        // one note on
+        ga.note_on(69, 100);
+        // a note on that's higher than previous goes at end
+        ga.note_on(70, 100);
+
+        // expect that they are mapped to the first two rows
     }
 
     fn test_grid_arp_row_active() {
