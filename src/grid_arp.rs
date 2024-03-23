@@ -318,7 +318,7 @@ impl GridArp {
                 );
                 if let Some(r) = row_index {
                     if let Some(n) = note {
-                        self.rows[r].add_note(n.clone());
+                        self.rows[r].add_note(*n);
                     }
                 }
             });
