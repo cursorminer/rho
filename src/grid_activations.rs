@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 extern crate rand;
 
 use crate::rand::prelude::SliceRandom;
@@ -11,12 +13,6 @@ use rand::thread_rng;
 // add the RowAssigner type and impl
 
 // todo this belongs somewhere else
-pub fn wrap(i: usize, max: usize) -> usize {
-    if max == 0 {
-        return 0;
-    }
-    i % (max + 1)
-}
 
 // flatten a bunch of row sequences into one single sequence
 pub fn flatten(v: Vec<Vec<usize>>) -> Vec<usize> {
@@ -218,12 +214,6 @@ impl GridActivations {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn it_wraps() {
-        assert_eq!(wrap(5, 3), 1);
-        assert_eq!(wrap(5, 4), 0);
-    }
 
     #[test]
     fn can_create_new_distribution() {

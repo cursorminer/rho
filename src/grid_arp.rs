@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use std::cmp::PartialOrd;
 
 // a midi note
@@ -48,6 +50,12 @@ struct Row {
     rotation_counter: usize, // which of notes to play next
 }
 
+impl Row {
+    pub fn add_note(&mut self, note: Note) {
+        self.notes.push(note);
+    }
+}
+
 impl Default for Row {
     fn default() -> Self {
         Row {
@@ -56,6 +64,13 @@ impl Default for Row {
             rotation_counter: 0,
         }
     }
+}
+
+pub fn wrap(i: usize, max: usize) -> usize {
+    if max == 0 {
+        return 0;
+    }
+    i % (max + 1)
 }
 
 pub fn increment_and_wrap(i: usize, wrap_before: usize) -> usize {
@@ -101,6 +116,37 @@ pub fn stack_low(i: usize, max: usize) -> usize {
         0
     } else {
         i
+    }
+}
+
+// take the index of the note and return the index of the row it should be assigned to
+
+fn map_note_index_to_row_index(
+    note_index: usize,
+    active_row_indices: &Vec<usize>,
+    note_wrapping_mode: &NoteWrapping,
+) -> Option<usize> {
+    let active_row_indices = active_row_indices;
+    let max_row = active_row_indices.len() - 1;
+
+    let row_index = match note_wrapping_mode {
+        NoteWrapping::Fold => Some(fold_into_range(note_index, max_row)),
+        NoteWrapping::Wrap => Some(wrap(note_index, max_row)),
+        NoteWrapping::StackHigh => Some(stack_high(note_index, max_row)),
+        NoteWrapping::StackLow => Some(stack_low(note_index, max_row)),
+        NoteWrapping::None => {
+            if note_index < max_row {
+                Some(note_index)
+            } else {
+                None
+            }
+        }
+    };
+
+    if let Some(r) = row_index {
+        Some(active_row_indices[r])
+    } else {
+        None
     }
 }
 
@@ -221,7 +267,7 @@ impl GridArp {
     }
 
     // "private" stuff
-    fn invert_active_row_index(index: usize) {}
+    //fn invert_active_row_index(index: usize) {}
 
     // try to find an unassigned row to assign a note to, if can't return false
     // this active note thing sucks...
@@ -245,25 +291,55 @@ impl GridArp {
             }
         }
     }
+    pub fn wrap_notes_enabled(&self) -> bool {
+        match self.note_wrapping_mode {
+            NoteWrapping::None => false,
+            _ => true,
+        }
+    }
 
     // when anything changes, reassign the notes to the rows
     fn update_note_to_row_mapping(&mut self) {
         self.clear_all_note_assignments();
 
-        // loop through the active rows assigning notes this depends on the various modes
-        let mut note_index = 0;
-        let mut row_index = 0;
-        let num_notes = self.active_notes.len();
+        // make a copy of active notes, because we can't borrow self.active_notes to change self.rows
+        let active_notes = self.active_notes.clone();
+        // loop over active notes
+        // get the row index that the note will be assigned to
+        // copy the note in
+        active_notes
+            .iter()
+            .enumerate()
+            .for_each(|(note_index, note)| {
+                let row_index = map_note_index_to_row_index(
+                    note_index,
+                    &self.active_row_indices(),
+                    &self.note_wrapping_mode,
+                );
+                if let Some(r) = row_index {
+                    if let Some(n) = note {
+                        self.rows[r].add_note(n.clone());
+                    }
+                }
+            });
 
-        if num_notes == 0 || self.num_active_rows() == 0 {
-            return;
-        }
+        // if self.auto_octave_enabled {
+        //     self.fill_remaining_rows_with_octaves(row_index);
+        // }
+
+        // self.wrap_note_rotation_counters();
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn it_wraps() {
+        assert_eq!(wrap(5, 3), 1);
+        assert_eq!(wrap(5, 4), 0);
+    }
 
     #[test]
     fn test_grid_arp_note_on_off() {
@@ -326,12 +402,16 @@ mod tests {
         assert_eq!(ga.active_notes, vec![]);
         assert!(!ga.row_has_note_and_active(0));
 
-        let note = Note {
+        let note1 = Note {
             note_number: 69,
             velocity: 100,
         };
         let note2 = Note {
             note_number: 70,
+            velocity: 100,
+        };
+        let note3 = Note {
+            note_number: 71,
             velocity: 100,
         };
 
@@ -341,6 +421,23 @@ mod tests {
         ga.note_on(70, 100);
 
         // expect that they are mapped to the first two rows
+        assert_eq!(ga.rows[0].notes[0].note_number, 69);
+        assert_eq!(ga.rows[1].notes[0].note_number, 70);
+
+        // turn the top two rows off
+        ga.set_row_active(2, false);
+        ga.set_row_active(3, false);
+
+        // adding another note should fold
+        ga.note_on(71, 100);
+
+        assert_eq!(ga.rows[0].notes.len(), 1);
+        assert_eq!(ga.rows[0].notes, vec![note1]);
+        assert_eq!(ga.rows[1].notes.len(), 2);
+        assert_eq!(ga.rows[1].notes, vec![note2, note3]);
+        assert!(ga.rows[2].notes.is_empty());
+
+        // nothing mapped to next two rows
     }
 
     fn test_grid_arp_row_active() {
