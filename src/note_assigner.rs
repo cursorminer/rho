@@ -1,6 +1,9 @@
 #![allow(dead_code)]
 
+use crate::looping_state::LoopingSequence;
 use std::cmp::PartialOrd;
+
+pub const NUM_ROWS: usize = 4;
 
 // a midi note
 #[derive(Debug, Clone, Copy)]
@@ -45,23 +48,18 @@ enum NoteWrapping {
 // this could implement an iterator trait, and next does the right things...
 #[derive(Debug)]
 struct Row {
-    active: bool,            // is the row on or off
-    notes: Vec<Note>,        // the midi notes associated with the row
-    rotation_counter: usize, // which of notes to play next
+    active: bool,                 // is the row on or off
+    notes: LoopingSequence<Note>, // the midi notes associated with the row
+    rotation_counter: usize,      // which of notes to play next
 }
 
 impl Row {
     pub fn add_note(&mut self, note: Note) {
-        self.notes.push(note);
+        self.notes.data.push(note);
     }
 
-    pub fn tick(&mut self) -> Note {
-        if self.rotation_counter + 1 >= self.notes.len() {
-            self.rotation_counter = 1;
-        } else {
-            self.rotation_counter += 1;
-        }
-        self.notes[self.rotation_counter]
+    pub fn tick(&mut self) -> Option<Note> {
+        self.notes.next()
     }
 }
 
@@ -69,7 +67,7 @@ impl Default for Row {
     fn default() -> Self {
         Row {
             active: true,
-            notes: vec![],
+            notes: LoopingSequence::new(vec![]),
             rotation_counter: 0,
         }
     }
@@ -151,8 +149,6 @@ fn map_note_index_to_row_index(
     }
 }
 
-const NUM_ROWS: usize = 4;
-
 // This class keeps track of the active notes, assigns notes to rows, and handles which note comes next for a given row.
 // Probably should be renamed to reflect that fact...
 pub struct NoteAssigner {
@@ -181,12 +177,18 @@ impl NoteAssigner {
         }
     }
 
-    // given which rows have steps, return the notes
-    pub fn get_next_notes(&mut self, triggered_rows: Vec<usize>) {
-        let notes = triggered_rows
-            .iter()
-            .filter(|i| self.rows[**i].active)
-            .map(|i| self.rows[*i].tick());
+    // given which rows are active and have assigned notes, return the notes
+    pub fn get_next_notes(&mut self, triggered_rows: Vec<usize>) -> Vec<Note> {
+        // tick all the rows that are active and appear in triggered rows
+        let mut notes = vec![];
+        for row_index in triggered_rows {
+            if self.row_has_note_and_active(row_index) {
+                if let Some(note) = self.rows[row_index].tick() {
+                    notes.push(note);
+                }
+            }
+        }
+        notes
     }
 
     pub fn note_on(&mut self, note_number: usize, velocity: usize) {
@@ -258,7 +260,7 @@ impl NoteAssigner {
     }
 
     pub fn clear_all_note_assignments(&mut self) {
-        self.rows.iter_mut().for_each(|row| row.notes.clear());
+        self.rows.iter_mut().for_each(|row| row.notes.data.clear());
     }
 
     // returns a vector of indices for the active notes (will always be in ascending order)
@@ -357,6 +359,7 @@ impl NoteAssigner {
             if self.rows[row_index].active {
                 self.rows[row_index]
                     .notes
+                    .data
                     .push(self.get_octave_shifted_note_for_index(row_index));
             }
         }
@@ -464,8 +467,8 @@ mod tests {
         ga.note_on(70, 100);
 
         // expect that they are mapped to the first two rows
-        assert_eq!(ga.rows[0].notes[0].note_number, 69);
-        assert_eq!(ga.rows[1].notes[0].note_number, 70);
+        assert_eq!(ga.rows[0].notes.data[0].note_number, 69);
+        assert_eq!(ga.rows[1].notes.data[0].note_number, 70);
 
         // turn the top two rows off
         ga.set_row_active(2, false);
@@ -475,15 +478,20 @@ mod tests {
         ga.note_on(71, 100);
 
         assert_eq!(ga.rows[0].notes.len(), 1);
-        assert_eq!(ga.rows[0].notes, vec![note1]);
+        assert_eq!(ga.rows[0].notes.data, vec![note1]);
         assert_eq!(ga.rows[1].notes.len(), 2);
-        assert_eq!(ga.rows[1].notes, vec![note2, note3]);
-        assert!(ga.rows[2].notes.is_empty());
+        assert_eq!(ga.rows[1].notes.data, vec![note2, note3]);
+        // nothing mapped to next two rows
+        assert!(ga.rows[2].notes.data.is_empty());
 
         assert_eq!(ga.invert_active_row_index(1), 0);
         assert_eq!(ga.invert_active_row_index(0), 1);
 
-        // nothing mapped to next two rows
+        // trigger rows 1,2,3
+        let notes = ga.get_next_notes(vec![0, 1, 2, 3]);
+
+        // expect the notes from the first two rows
+        assert_eq!(notes, vec![note1, note2]);
     }
 
     #[test]
@@ -511,9 +519,9 @@ mod tests {
         ga.note_on(60, 100);
         ga.fill_remaining_rows_with_octaves();
 
-        assert_eq!(ga.rows[0].notes[0].note_number, 60);
-        assert_eq!(ga.rows[1].notes[0].note_number, 72);
-        assert_eq!(ga.rows[2].notes[0].note_number, 84);
-        assert_eq!(ga.rows[3].notes[0].note_number, 96);
+        assert_eq!(ga.rows[0].notes.data[0].note_number, 60);
+        assert_eq!(ga.rows[1].notes.data[0].note_number, 72);
+        assert_eq!(ga.rows[2].notes.data[0].note_number, 84);
+        assert_eq!(ga.rows[3].notes.data[0].note_number, 96);
     }
 }

@@ -80,7 +80,7 @@ pub fn grid_index_to_flat_index(grid_index: (usize, usize), row_lengths: &Vec<us
     return flat;
 }
 
-struct GridActivations {
+pub struct GridActivations {
     active: Vec<bool>,
     thresh: Vec<usize>,
     row_lengths: Vec<usize>,

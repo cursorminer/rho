@@ -1,9 +1,14 @@
+#[derive(Debug)]
 pub struct LoopingSequence<T> {
-    data: Vec<T>,
+    pub data: Vec<T>,
     counter: usize,
 }
 
-impl<T> LoopingSequence<T> {
+impl<T> LoopingSequence<T>
+where
+    T: Clone,
+    T: Copy,
+{
     pub fn new(data: Vec<T>) -> Self {
         Self {
             data: data,
@@ -14,13 +19,34 @@ impl<T> LoopingSequence<T> {
     pub fn reset(&mut self) {
         self.counter = 0;
     }
+}
 
-    pub fn tick(&mut self) -> T {
-        self.counter += 1;
-        if self.counter >= self.data.len() {
-            self.counter = 0;
+impl<T> Iterator for LoopingSequence<T>
+where
+    T: Clone + Copy,
+{
+    type Item = T;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.data.is_empty() {
+            None
+        } else {
+            let value = self.data[self.counter];
+            self.counter += 1;
+            if self.counter >= self.data.len() {
+                self.counter = 0;
+            }
+            Some(value)
         }
-        self.data[self.counter]
+    }
+}
+
+impl<T> ExactSizeIterator for LoopingSequence<T>
+where
+    T: Clone + Copy,
+{
+    fn len(&self) -> usize {
+        self.data.len()
     }
 }
 
@@ -30,6 +56,13 @@ mod tests {
 
     #[test]
     fn test_looping_state() {
-        let s = LoopingState::new(vec![10, 20, 30]);
+        let mut s = LoopingSequence::new(vec![10, 20, 30]);
+
+        assert_eq!(s.next(), Some(10));
+        assert_eq!(s.next(), Some(20));
+        assert_eq!(s.next(), Some(30));
+        assert_eq!(s.next(), Some(10));
+        s.reset();
+        assert_eq!(s.next(), Some(10));
     }
 }
