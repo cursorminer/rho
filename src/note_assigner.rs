@@ -4,7 +4,7 @@ use std::cmp::PartialOrd;
 
 // a midi note
 #[derive(Debug, Clone, Copy)]
-struct Note {
+pub struct Note {
     note_number: usize,
     velocity: usize,
 }
@@ -54,6 +54,15 @@ impl Row {
     pub fn add_note(&mut self, note: Note) {
         self.notes.push(note);
     }
+
+    pub fn tick(&mut self) -> Note {
+        if self.rotation_counter + 1 >= self.notes.len() {
+            self.rotation_counter = 1;
+        } else {
+            self.rotation_counter += 1;
+        }
+        self.notes[self.rotation_counter]
+    }
 }
 
 impl Default for Row {
@@ -71,14 +80,6 @@ pub fn wrap(i: usize, max: usize) -> usize {
         return 0;
     }
     i % (max + 1)
-}
-
-pub fn increment_and_wrap(i: usize, wrap_before: usize) -> usize {
-    if i + 1 >= wrap_before {
-        0
-    } else {
-        i + 1
-    }
 }
 
 // folds over before end so that starts going down again
@@ -154,7 +155,7 @@ const NUM_ROWS: usize = 4;
 
 // This class keeps track of the active notes, assigns notes to rows, and handles which note comes next for a given row.
 // Probably should be renamed to reflect that fact...
-struct NoteAssigner {
+pub struct NoteAssigner {
     active_notes: Vec<Option<Note>>, // the none state means that we have an empty row but others are pinned above it
     rows: [Row; NUM_ROWS],
     note_ordering_mode: NoteOrdering,
@@ -178,6 +179,14 @@ impl NoteAssigner {
             auto_octave_enabled: false,
             invert_rows_enabled: false,
         }
+    }
+
+    // given which rows have steps, return the notes
+    pub fn get_next_notes(&mut self, triggered_rows: Vec<usize>) {
+        let notes = triggered_rows
+            .iter()
+            .filter(|i| self.rows[**i].active)
+            .map(|i| self.rows[*i].tick());
     }
 
     pub fn note_on(&mut self, note_number: usize, velocity: usize) {
