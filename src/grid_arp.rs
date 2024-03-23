@@ -267,7 +267,17 @@ impl GridArp {
     }
 
     // "private" stuff
-    //fn invert_active_row_index(index: usize) {}
+
+    // reverses the order of indices, but only for active rows
+    // e.g. if row 1 & 2 are active then 2 becomes 1 and 1 becomes 2, 3 & 4 are left alone
+    fn invert_active_row_index(&self, index: usize) -> usize {
+        *self
+            .active_row_indices()
+            .iter()
+            .rev()
+            .nth(index)
+            .unwrap_or(&index)
+    }
 
     // try to find an unassigned row to assign a note to, if can't return false
     // this active note thing sucks...
@@ -460,6 +470,9 @@ mod tests {
         assert_eq!(ga.rows[1].notes.len(), 2);
         assert_eq!(ga.rows[1].notes, vec![note2, note3]);
         assert!(ga.rows[2].notes.is_empty());
+
+        assert_eq!(ga.invert_active_row_index(1), 0);
+        assert_eq!(ga.invert_active_row_index(0), 1);
 
         // nothing mapped to next two rows
     }
