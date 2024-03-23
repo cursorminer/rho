@@ -154,7 +154,7 @@ const NUM_ROWS: usize = 4;
 
 // This class keeps track of the active notes, assigns notes to rows, and handles which note comes next for a given row.
 // Probably should be renamed to reflect that fact...
-struct GridArp {
+struct NoteAssigner {
     active_notes: Vec<Option<Note>>, // the none state means that we have an empty row but others are pinned above it
     rows: [Row; NUM_ROWS],
     note_ordering_mode: NoteOrdering,
@@ -165,11 +165,11 @@ struct GridArp {
     invert_rows_enabled: bool,
 }
 
-impl GridArp {
+impl NoteAssigner {
     pub fn new() -> Self {
         let rows_vec: Vec<Row> = (0..4).map(|_| Row::default()).collect();
         let rows_array: [Row; 4] = rows_vec.try_into().unwrap();
-        GridArp {
+        NoteAssigner {
             active_notes: vec![],
             rows: rows_array,
             note_ordering_mode: NoteOrdering::LowestFirst,
@@ -376,8 +376,8 @@ mod tests {
     }
 
     #[test]
-    fn test_grid_arp_note_on_off() {
-        let mut ga = GridArp::new();
+    fn test_note_assigner_note_on_off() {
+        let mut ga = NoteAssigner::new();
         assert_eq!(ga.active_notes, vec![]);
         assert!(!ga.row_has_note_and_active(0));
 
@@ -431,8 +431,8 @@ mod tests {
     }
 
     #[test]
-    fn test_grid_arp_note_row_mapping() {
-        let mut ga = GridArp::new();
+    fn test_note_assigner_note_row_mapping() {
+        let mut ga = NoteAssigner::new();
         assert_eq!(ga.active_notes, vec![]);
         assert!(!ga.row_has_note_and_active(0));
 
@@ -477,17 +477,27 @@ mod tests {
         // nothing mapped to next two rows
     }
 
-    fn test_grid_arp_row_active() {
-        let mut ga = GridArp::new();
+    #[test]
+    fn test_note_assigner_row_active() {
+        let mut ga = NoteAssigner::new();
+
+        ga.set_row_active(0, false);
         ga.set_row_active(1, true);
-        assert_eq!(ga.num_active_rows(), 1);
-        assert_eq!(ga.active_row_indices(), vec![1]);
+        ga.set_row_active(2, false);
+        ga.set_row_active(3, true);
+
         assert_eq!(ga.num_active_rows(), 2);
         assert_eq!(ga.active_row_indices(), vec![1, 3]);
+
+        ga.set_row_active(3, false);
+
+        assert_eq!(ga.num_active_rows(), 1);
+        assert_eq!(ga.active_row_indices(), vec![1]);
     }
 
+    #[test]
     fn test_fill_octaves() {
-        let mut ga = GridArp::new();
+        let mut ga = NoteAssigner::new();
 
         ga.note_on(60, 100);
         ga.fill_remaining_rows_with_octaves();
