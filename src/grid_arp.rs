@@ -323,11 +323,35 @@ impl GridArp {
                 }
             });
 
-        // if self.auto_octave_enabled {
-        //     self.fill_remaining_rows_with_octaves(row_index);
-        // }
+        if self.auto_octave_enabled {
+            self.fill_remaining_rows_with_octaves();
+        }
 
-        // self.wrap_note_rotation_counters();
+        //self.wrap_note_rotation_counters();
+    }
+
+    // this fills any notes that don't have notes with octaves above the ones that do
+    fn fill_remaining_rows_with_octaves(&mut self) {
+        // loop over all row indices after first free index and add octaves
+        let first_free_row = 1; // todo
+        for row_index in first_free_row..NUM_ROWS {
+            if self.rows[row_index].active {
+                self.rows[row_index]
+                    .notes
+                    .push(self.get_octave_shifted_note_for_index(row_index));
+            }
+        }
+    }
+
+    fn get_octave_shifted_note_for_index(&self, row_index: usize) -> Note {
+        // TODO this mod might be wrong or weird if rows are deactivated
+        let note_to_repeat = self.active_notes[row_index % self.active_notes.len()];
+        let octave = row_index / self.active_notes.len();
+
+        Note {
+            note_number: note_to_repeat.unwrap().note_number + 12 * octave,
+            velocity: note_to_repeat.unwrap().velocity,
+        }
     }
 }
 
@@ -447,5 +471,17 @@ mod tests {
         assert_eq!(ga.active_row_indices(), vec![1]);
         assert_eq!(ga.num_active_rows(), 2);
         assert_eq!(ga.active_row_indices(), vec![1, 3]);
+    }
+
+    fn test_fill_octaves() {
+        let mut ga = GridArp::new();
+
+        ga.note_on(60, 100);
+        ga.fill_remaining_rows_with_octaves();
+
+        assert_eq!(ga.rows[0].notes[0].note_number, 60);
+        assert_eq!(ga.rows[1].notes[0].note_number, 72);
+        assert_eq!(ga.rows[2].notes[0].note_number, 84);
+        assert_eq!(ga.rows[3].notes[0].note_number, 96);
     }
 }
