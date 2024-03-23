@@ -14,7 +14,9 @@ pub mod looping_state;
 struct Rho {
     grid_activations: GridActivations,
     note_assigner: NoteAssigner,
-    row_counter: [looping_state::LoopingSequence<bool>; NUM_ROWS],
+    // todo: we have this, but we also have the row_length in the grid_activations ,
+    //which is a bit redundant and the states could become out of sync
+    row_loopers: [looping_state::LoopingSequence<bool>; NUM_ROWS],
 }
 
 impl Rho {
@@ -22,9 +24,20 @@ impl Rho {
         self.note_assigner.note_on(0, 0);
     }
 
-    fn on_clock_high(&mut self) {
+    fn update_row_looper_from_grid(&mut self) {
+        // surely a nicer way to do this
+        for row in 0..NUM_ROWS {
+            let row_length = self.grid_activations.get_row_length(row);
+            self.row_loopers[row].resize(row_length, false);
+            self.row_loopers[row].set_data(self.grid_activations.get_row(row));
+        }
+    }
 
-        //let triggered_rows = self.grid_activations.tick_rows();
+    fn on_clock_high(&mut self) {
+        self.update_row_looper_from_grid(); // maybe should happen from UI listeners
+
+        // get the rows that are triggered by ticking the row loopers
+        // let triggered_rows = self.tick_rows();
 
         // let notes_to_play = self.note_assigner.get_next_notes(triggered_rows);
 

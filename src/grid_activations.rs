@@ -97,6 +97,12 @@ impl GridActivations {
         }
     }
 
+    pub fn get_row(&self, index: usize) -> Vec<bool> {
+        let start = self.row_lengths[0..index].iter().sum();
+        let end = start + self.row_lengths[index];
+        self.active[start..end].to_vec()
+    }
+
     fn num_active_steps(&self) -> usize {
         self.active
             .iter()
@@ -208,6 +214,14 @@ impl GridActivations {
 
             self.row_lengths[row_to_remove_from] -= 1;
         }
+    }
+
+    pub fn get_row_length(&self, row: usize) -> usize {
+        self.row_lengths[row]
+    }
+
+    pub fn get(&self, row: usize, step: usize) -> bool {
+        self.active[grid_index_to_flat_index((row, step), &self.row_lengths)]
     }
 }
 
@@ -364,6 +378,9 @@ mod tests {
 
         let expected_row_lengths: Vec<usize> = std::vec![1, 3, 3];
         assert_eq!(seq.row_lengths, expected_row_lengths);
+
+        assert_eq!(seq.get_row_length(2), 3);
+        assert_eq!(seq.get_row(2), vec![true, true, true]);
     }
 
     #[test]

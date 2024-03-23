@@ -19,8 +19,21 @@ where
     pub fn reset(&mut self) {
         self.counter = 0;
     }
+
+    pub fn resize(&mut self, new_length: usize, value: T) {
+        // adjust counter to be within bounds
+        if self.counter >= new_length {
+            self.counter = self.counter % new_length;
+        }
+        self.data.resize(new_length, value);
+    }
+
+    pub fn set_data(&mut self, data: Vec<T>) {
+        self.data = data.clone();
+    }
 }
 
+// is there a point to doing this? could it be useful?
 impl<T> Iterator for LoopingSequence<T>
 where
     T: Clone + Copy,
