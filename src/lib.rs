@@ -22,6 +22,10 @@ pub struct Rho {
 }
 
 impl Rho {
+    pub fn set_density(&mut self, density: f32) {
+        self.grid_activations.set_normalized_density(density);
+    }
+
     pub fn new() -> Self {
         const DEFAULT_STEP_LEN: usize = 4;
         Rho {

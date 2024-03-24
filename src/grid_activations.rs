@@ -84,7 +84,8 @@ pub struct GridActivations {
     active: Vec<bool>,
     thresh: Vec<usize>,
     row_lengths: Vec<usize>,
-    // maybe density
+    // these suck because they both interdepend on the steps
+    normalized_density: f32,
 }
 
 impl GridActivations {
@@ -94,6 +95,28 @@ impl GridActivations {
             active: vec![false; total_steps],
             thresh: create_new_distribution(total_steps),
             row_lengths: vec![steps; rows],
+            normalized_density: 0.0,
+        }
+    }
+
+    pub fn get_total_num_steps(&self) -> usize {
+        self.row_lengths.iter().sum()
+    }
+
+    pub fn set_normalized_density(&mut self, density: f32) {
+        self.normalized_density = density;
+        let wanted_num_active_steps = (density * self.get_total_num_steps() as f32) as usize;
+
+        if self.num_active_steps() != wanted_num_active_steps {
+            self.set_activations_for_new_density(wanted_num_active_steps);
+        }
+    }
+
+    pub fn set_row_length(&mut self, row_index: usize, new_length: usize) {
+        if new_length > self.row_lengths[row_index] {
+            self.append_steps(row_index, new_length);
+        } else if new_length < self.row_lengths[row_index] {
+            self.remove_steps(row_index, new_length);
         }
     }
 
