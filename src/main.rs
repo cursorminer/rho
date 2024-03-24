@@ -64,19 +64,17 @@ fn run(rho: Arc<Mutex<Rho>>) -> Result<(), Box<dyn Error>> {
                 // output a midi note
                 play_note(69, 4);
             }
+
+            let mut rho = rho.lock().unwrap();
+            let norm_density = (density as f32) / 127.0;
+            if norm_density != rho.get_density() {
+                rho.set_density(norm_density);
+            }
         });
     });
 
     // _conn_in needs to be a named parameter, because it needs to be kept alive until the end of the scope
-    let _conn_in = midi_in.connect(
-        &in_port,
-        "midir-forward",
-        move |stamp, message, _| {
-            let mut rho = rho.lock().unwrap();
-            on_midi_in(&mut rho, stamp, message);
-        },
-        (),
-    )?;
+    let _conn_in = midi_in.connect(&in_port, "midir-forward", move |stamp, message, _| {}, ())?;
 
     let mut input = String::new();
     stdin().read_line(&mut input)?; // wait for next enter key press

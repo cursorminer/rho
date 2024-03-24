@@ -104,12 +104,17 @@ impl GridActivations {
     }
 
     pub fn set_normalized_density(&mut self, density: f32) {
+        print!("set_normalized_density {}\n", density);
         self.normalized_density = density;
         let wanted_num_active_steps = (density * self.get_total_num_steps() as f32) as usize;
 
         if self.num_active_steps() != wanted_num_active_steps {
             self.set_activations_for_new_density(wanted_num_active_steps);
         }
+    }
+
+    pub fn get_density(&self) -> f32 {
+        self.normalized_density
     }
 
     pub fn set_row_length(&mut self, row_index: usize, new_length: usize) {
