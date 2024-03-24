@@ -1,11 +1,11 @@
 // import my lib here
 extern crate shitquencer;
 
+use eframe::egui;
 use shitquencer::Rho;
 use std::error::Error;
 use std::io::{stdin, stdout, Write};
 use std::sync::{Arc, Mutex};
-use std::thread;
 use std::thread::sleep;
 use std::time::Duration;
 
@@ -13,6 +13,8 @@ use midir::{Ignore, MidiIO, MidiInput, MidiOutput};
 
 fn main() {
     let rho = Arc::new(Mutex::new(Rho::new()));
+
+    env_logger::init(); // Log to stderr (if you run with `RUST_LOG=debug`).
 
     match run(rho) {
         Ok(_) => (),
@@ -31,10 +33,39 @@ fn run(rho: Arc<Mutex<Rho>>) -> Result<(), Box<dyn Error>> {
     let out_port = select_port(&midi_out, "output")?;
 
     println!("\nOpening connections");
-    let in_port_name = midi_in.port_name(&in_port)?;
-    let out_port_name = midi_out.port_name(&out_port)?;
+    // let in_port_name = midi_in.port_name(&in_port)?;
+    // let out_port_name = midi_out.port_name(&out_port)?;
 
     let mut conn_out = midi_out.connect(&out_port, "midir-forward")?;
+
+    let options = eframe::NativeOptions {
+        viewport: egui::ViewportBuilder::default().with_inner_size([600.0, 600.0]),
+        ..Default::default()
+    };
+
+    let mut density: i32 = 0;
+
+    let _ = eframe::run_simple_native("My egui App", options, move |ctx, _frame| {
+        egui::CentralPanel::default().show(ctx, |ui| {
+            // Define a new scope in which the closure `play_note` borrows conn_out, so it can be called easily
+            let mut play_note = |note: u8, duration: u64| {
+                const NOTE_ON_MSG: u8 = 0x90;
+                const NOTE_OFF_MSG: u8 = 0x80;
+                const VELOCITY: u8 = 0x64;
+                // We're ignoring errors in here
+                let _ = conn_out.send(&[NOTE_ON_MSG, note, VELOCITY]);
+                sleep(Duration::from_millis(duration * 150));
+                let _ = conn_out.send(&[NOTE_OFF_MSG, note, VELOCITY]);
+            };
+
+            ui.heading("My egui Application");
+            ui.add(egui::Slider::new(&mut density, 0..=127).text("density"));
+            if ui.button("Squanchrement").clicked() {
+                // output a midi note
+                play_note(69, 4);
+            }
+        });
+    });
 
     // _conn_in needs to be a named parameter, because it needs to be kept alive until the end of the scope
     let _conn_in = midi_in.connect(
@@ -54,7 +85,7 @@ fn run(rho: Arc<Mutex<Rho>>) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-fn on_midi_in(rho: &mut Rho, stamp: u64, message: &[u8]) {
+fn on_midi_in(rho: &mut Rho, _stamp: u64, message: &[u8]) {
     //println!("{}: {:?} (len = {})", stamp, message, message.len());
 
     const MSG_NOTE: u8 = 144;
