@@ -12,7 +12,7 @@ use note_assigner::NUM_ROWS;
 
 pub mod looping_state;
 
-struct Rho {
+pub struct Rho {
     grid_activations: GridActivations,
     note_assigner: NoteAssigner,
     // todo: we have this, but we also have the row_length in the grid_activations ,
@@ -22,16 +22,49 @@ struct Rho {
 }
 
 impl Rho {
-    fn note_on(&mut self) {
-        self.note_assigner.note_on(0, 0);
+    pub fn new() -> Self {
+        const DEFAULT_STEP_LEN: usize = 4;
+        Rho {
+            grid_activations: GridActivations::new(NUM_ROWS, DEFAULT_STEP_LEN),
+            note_assigner: NoteAssigner::new(),
+            row_loopers: [
+                Default::default(),
+                Default::default(),
+                Default::default(),
+                Default::default(), // surely an easier way
+            ],
+            playing_notes: vec![],
+        }
+    }
+    pub fn note_on(&mut self, note: usize, velocity: usize) {
+        self.note_assigner.note_on(note, velocity);
     }
 
-    fn update_row_looper_from_grid(&mut self) {
-        // surely a nicer way to do this
-        for row in 0..NUM_ROWS {
-            let row_length = self.grid_activations.get_row_length(row);
-            self.row_loopers[row].resize(row_length, false);
-            self.row_loopers[row].set_data(self.grid_activations.get_row(row));
+    pub fn note_off(&mut self, note: usize) {
+        self.note_assigner.note_off(note);
+    }
+
+    pub fn on_clock_high(&mut self) {
+        self.update_row_looper_from_grid(); // maybe should happen from UI listeners
+
+        // get the rows that are triggered by ticking the row loopers
+        let triggered_rows = self.tick_rows();
+
+        let notes_to_play = self.note_assigner.get_next_notes(triggered_rows);
+
+        self.play_midi_notes(notes_to_play);
+
+        // keep track of the midi notes
+    }
+
+    pub fn on_clock_low(&mut self) {
+        // send note offs for all the notes
+        self.playing_notes.clear();
+    }
+
+    fn play_midi_notes(&mut self, notes: Vec<note_assigner::Note>) {
+        for note in notes {
+            self.playing_notes.push(note);
         }
     }
 
@@ -47,27 +80,12 @@ impl Rho {
         triggered_rows
     }
 
-    fn on_clock_high(&mut self) {
-        self.update_row_looper_from_grid(); // maybe should happen from UI listeners
-
-        // get the rows that are triggered by ticking the row loopers
-        let triggered_rows = self.tick_rows();
-
-        let notes_to_play = self.note_assigner.get_next_notes(triggered_rows);
-
-        self.play_midi_notes(notes_to_play);
-
-        // keep track of the midi notes
-    }
-
-    fn on_clock_low(&mut self) {
-        // send note offs for all the notes
-        self.playing_notes.clear();
-    }
-
-    fn play_midi_notes(&mut self, notes: Vec<note_assigner::Note>) {
-        for note in notes {
-            self.playing_notes.push(note);
+    fn update_row_looper_from_grid(&mut self) {
+        // surely a nicer way to do this
+        for row in 0..NUM_ROWS {
+            let row_length = self.grid_activations.get_row_length(row);
+            self.row_loopers[row].resize(row_length, false);
+            self.row_loopers[row].set_data(self.grid_activations.get_row(row));
         }
     }
 }

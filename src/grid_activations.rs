@@ -88,7 +88,14 @@ pub struct GridActivations {
 }
 
 impl GridActivations {
-    // @todo should we have a new with some decent checks?
+    pub fn new(rows: usize, steps: usize) -> Self {
+        let total_steps = steps * rows;
+        GridActivations {
+            active: vec![false; total_steps],
+            thresh: create_new_distribution(total_steps),
+            row_lengths: vec![steps; rows],
+        }
+    }
 
     // When the density is changed, the active steps change according to their threshold
     pub fn set_activations_for_new_density(&mut self, density: usize) {

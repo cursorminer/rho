@@ -1,4 +1,4 @@
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct LoopingSequence<T> {
     pub data: Vec<T>,
     counter: usize,
@@ -60,6 +60,19 @@ where
 {
     fn len(&self) -> usize {
         self.data.len()
+    }
+}
+
+impl<T> Default for LoopingSequence<T>
+where
+    T: Clone + Copy,
+{
+    fn default() -> Self {
+        let default_data = vec![];
+        Self {
+            data: default_data,
+            counter: 0,
+        }
     }
 }
 
