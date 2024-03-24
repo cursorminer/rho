@@ -5,6 +5,7 @@ use shitquencer::Rho;
 use std::error::Error;
 use std::io::{stdin, stdout, Write};
 use std::sync::{Arc, Mutex};
+use std::thread;
 use std::thread::sleep;
 use std::time::Duration;
 
@@ -12,6 +13,7 @@ use midir::{Ignore, MidiIO, MidiInput, MidiOutput};
 
 fn main() {
     let rho = Arc::new(Mutex::new(Rho::new()));
+
     match run(rho) {
         Ok(_) => (),
         Err(err) => println!("Error: {}", err),
@@ -44,11 +46,6 @@ fn run(rho: Arc<Mutex<Rho>>) -> Result<(), Box<dyn Error>> {
         },
         (),
     )?;
-
-    println!(
-        "Connections open, forwarding from '{}' to '{}' (press enter to exit) ...",
-        in_port_name, out_port_name
-    );
 
     let mut input = String::new();
     stdin().read_line(&mut input)?; // wait for next enter key press

@@ -22,6 +22,24 @@
             },
             "args": [],
             "cwd": "${workspaceFolder}"
-        }
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug RHO",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=shitquencer",
+                    "--package=shitquencer"
+                ],
+                "filter": {
+                    "name": "shitquencer",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
     ]
 }
