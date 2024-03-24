@@ -38,10 +38,12 @@ impl Rho {
     }
     pub fn note_on(&mut self, note: usize, velocity: usize) {
         self.note_assigner.note_on(note, velocity);
+        self.note_assigner.print_row_notes();
     }
 
     pub fn note_off(&mut self, note: usize) {
         self.note_assigner.note_off(note);
+        self.note_assigner.print_row_notes();
     }
 
     pub fn on_clock_high(&mut self) {

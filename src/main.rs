@@ -4,20 +4,22 @@ extern crate shitquencer;
 use shitquencer::Rho;
 use std::error::Error;
 use std::io::{stdin, stdout, Write};
+use std::sync::{Arc, Mutex};
 use std::thread::sleep;
 use std::time::Duration;
 
 use midir::{Ignore, MidiIO, MidiInput, MidiOutput};
 
 fn main() {
-    match run() {
+    let rho = Arc::new(Mutex::new(Rho::new()));
+    match run(rho) {
         Ok(_) => (),
         Err(err) => println!("Error: {}", err),
     }
 }
 
 #[cfg(not(target_arch = "wasm32"))] // conn_out is not `Send` in Web MIDI, which means it cannot be passed to connect
-fn run() -> Result<(), Box<dyn Error>> {
+fn run(rho: Arc<Mutex<Rho>>) -> Result<(), Box<dyn Error>> {
     let mut midi_in = MidiInput::new("midir forwarding input")?;
     midi_in.ignore(Ignore::None);
     let midi_out = MidiOutput::new("midir forwarding output")?;
@@ -37,7 +39,8 @@ fn run() -> Result<(), Box<dyn Error>> {
         &in_port,
         "midir-forward",
         move |stamp, message, _| {
-            on_midi_in(stamp, message);
+            let mut rho = rho.lock().unwrap();
+            on_midi_in(&mut rho, stamp, message);
         },
         (),
     )?;
@@ -54,19 +57,18 @@ fn run() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-fn on_midi_in(stamp: u64, message: &[u8]) {
-    println!("{}: {:?} (len = {})", stamp, message, message.len());
+fn on_midi_in(rho: &mut Rho, stamp: u64, message: &[u8]) {
+    //println!("{}: {:?} (len = {})", stamp, message, message.len());
 
     const MSG_NOTE: u8 = 144;
+    const MSG_NOTE_2: u8 = 145;
     const MSG_NOTE_OFF: u8 = 129;
-
-    let mut rho = Rho::new();
 
     let status = message[0];
     let note = message[1];
     let velocity = message[2];
 
-    if status == MSG_NOTE {
+    if status == MSG_NOTE || status == MSG_NOTE_2 {
         if velocity > 0 {
             rho.note_on(note.into(), velocity.into());
         } else {

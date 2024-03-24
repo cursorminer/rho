@@ -2,6 +2,7 @@
 
 use crate::looping_state::LoopingSequence;
 use std::cmp::PartialOrd;
+use std::fmt;
 
 pub const NUM_ROWS: usize = 4;
 
@@ -21,6 +22,12 @@ impl PartialEq for Note {
 impl PartialOrd for Note {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         Some(self.note_number.cmp(&other.note_number))
+    }
+}
+
+impl fmt::Display for Note {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Note {}", self.note_number)
     }
 }
 
@@ -375,6 +382,19 @@ impl NoteAssigner {
             velocity: note_to_repeat.unwrap().velocity,
         }
     }
+
+    pub fn print_row_notes(&self) {
+        print!("[");
+        let mut i = 0;
+        for row in &self.rows {
+            print!("Row {}:", i);
+            for note in &row.notes.data {
+                print!("{},", note);
+            }
+            i += 1;
+        }
+        print!("]\n");
+    }
 }
 
 #[cfg(test)]
@@ -492,6 +512,8 @@ mod tests {
 
         // expect the notes from the first two rows
         assert_eq!(notes, vec![note1, note2]);
+
+        ga.print_row_notes();
     }
 
     #[test]
