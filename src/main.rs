@@ -2,10 +2,12 @@
 extern crate shitquencer;
 
 use eframe::egui;
+use shitquencer::clock::Clock;
 use shitquencer::Rho;
 use std::error::Error;
 use std::io::{stdin, stdout, Write};
 use std::sync::{Arc, Mutex};
+use std::thread;
 use std::thread::sleep;
 use std::time::Duration;
 
@@ -14,16 +16,58 @@ use midir::{Ignore, MidiIO, MidiInput, MidiOutput};
 fn main() {
     let rho = Arc::new(Mutex::new(Rho::new()));
 
-    env_logger::init(); // Log to stderr (if you run with `RUST_LOG=debug`).
+    //env_logger::init(); // Log to stderr (if you run with `RUST_LOG=debug`).
 
-    match run(rho) {
-        Ok(_) => (),
-        Err(err) => println!("Error: {}", err),
-    }
+    // run gui in the main thread, it has a transmission channel
+
+    let mut clock_arc = Arc::new(Mutex::new(Clock::new()));
+    let sample_rate = 16.0;
+    let period_ms = (1000.0 / sample_rate) as u64;
+
+    // run a clock in another thread. This is equivalent of Audio
+    let handle = thread::spawn(move || {
+        for _i in 0..100 {
+            let mut clock = clock_arc.lock().unwrap();
+            clock.set_rate(0.5, sample_rate);
+            let clock_out = clock.tick();
+            thread::sleep(Duration::from_millis(period_ms));
+            print!("ticking");
+            if let Some(c) = clock_out {
+                print!("clock {}", c);
+            }
+        }
+    });
+
+    run_gui();
+    // match run_midi(rho) {
+    //     Ok(_) => (),
+    //     Err(err) => println!("Error: {}", err),
+    // }
+
+    handle.join().unwrap();
 }
 
-#[cfg(not(target_arch = "wasm32"))] // conn_out is not `Send` in Web MIDI, which means it cannot be passed to connect
-fn run(rho: Arc<Mutex<Rho>>) -> Result<(), Box<dyn Error>> {
+fn run_gui() {
+    let options = eframe::NativeOptions {
+        viewport: egui::ViewportBuilder::default().with_inner_size([600.0, 600.0]),
+        ..Default::default()
+    };
+
+    let mut density: i32 = 0;
+
+    let _ = eframe::run_simple_native("My egui App", options, move |ctx, _frame| {
+        egui::CentralPanel::default().show(ctx, |ui| {
+            ui.heading("My egui Application");
+            ui.add(egui::Slider::new(&mut density, 0..=127).text("density"));
+            if ui.button("Squanchrement").clicked() {
+                // output a midi note
+                print!("Squanchrement");
+            }
+        });
+    });
+}
+
+fn run_midi(rho: Arc<Mutex<Rho>>) -> Result<(), Box<dyn Error>> {
     let mut midi_in = MidiInput::new("midir forwarding input")?;
     midi_in.ignore(Ignore::None);
     let midi_out = MidiOutput::new("midir forwarding output")?;
@@ -38,43 +82,19 @@ fn run(rho: Arc<Mutex<Rho>>) -> Result<(), Box<dyn Error>> {
 
     let mut conn_out = midi_out.connect(&out_port, "midir-forward")?;
 
-    let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default().with_inner_size([600.0, 600.0]),
-        ..Default::default()
-    };
-
-    let mut density: i32 = 0;
-
-    let _ = eframe::run_simple_native("My egui App", options, move |ctx, _frame| {
-        egui::CentralPanel::default().show(ctx, |ui| {
-            // Define a new scope in which the closure `play_note` borrows conn_out, so it can be called easily
-            let mut play_note = |note: u8, duration: u64| {
-                const NOTE_ON_MSG: u8 = 0x90;
-                const NOTE_OFF_MSG: u8 = 0x80;
-                const VELOCITY: u8 = 0x64;
-                // We're ignoring errors in here
-                let _ = conn_out.send(&[NOTE_ON_MSG, note, VELOCITY]);
-                sleep(Duration::from_millis(duration * 150));
-                let _ = conn_out.send(&[NOTE_OFF_MSG, note, VELOCITY]);
-            };
-
-            ui.heading("My egui Application");
-            ui.add(egui::Slider::new(&mut density, 0..=127).text("density"));
-            if ui.button("Squanchrement").clicked() {
-                // output a midi note
-                play_note(69, 4);
-            }
-
-            let mut rho = rho.lock().unwrap();
-            let norm_density = (density as f32) / 127.0;
-            if norm_density != rho.get_density() {
-                rho.set_density(norm_density);
-            }
-        });
-    });
-
     // _conn_in needs to be a named parameter, because it needs to be kept alive until the end of the scope
     let _conn_in = midi_in.connect(&in_port, "midir-forward", move |stamp, message, _| {}, ())?;
+
+    // Define a new scope in which the closure `play_note` borrows conn_out, so it can be called easily
+    let mut play_note = |note: u8, duration: u64| {
+        const NOTE_ON_MSG: u8 = 0x90;
+        const NOTE_OFF_MSG: u8 = 0x80;
+        const VELOCITY: u8 = 0x64;
+        // We're ignoring errors in here
+        let _ = conn_out.send(&[NOTE_ON_MSG, note, VELOCITY]);
+        sleep(Duration::from_millis(duration * 150));
+        let _ = conn_out.send(&[NOTE_OFF_MSG, note, VELOCITY]);
+    };
 
     let mut input = String::new();
     stdin().read_line(&mut input)?; // wait for next enter key press
@@ -119,10 +139,4 @@ fn select_port<T: MidiIO>(midi_io: &T, descr: &str) -> Result<T::Port, Box<dyn E
         .get(input.trim().parse::<usize>()?)
         .ok_or("Invalid port number")?;
     Ok(port.clone())
-}
-
-#[cfg(target_arch = "wasm32")]
-fn run() -> Result<(), Box<dyn Error>> {
-    println!("test_forward cannot run on Web MIDI");
-    Ok(())
 }

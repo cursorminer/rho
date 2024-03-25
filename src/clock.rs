@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-struct Clock {
+pub struct Clock {
     duty_cycle: f32,
     gate_on: bool,
     phase: f32,
@@ -30,7 +30,7 @@ impl Clock {
     }
 
     // returns Some when the clock switches low or high
-    fn tick(&mut self) -> Option<bool> {
+    pub fn tick(&mut self) -> Option<bool> {
         self.phase += self.phase_inc;
         if self.phase > 1.0 {
             self.phase -= 1.0;
