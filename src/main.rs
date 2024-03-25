@@ -6,6 +6,7 @@ use shitquencer::clock::Clock;
 use shitquencer::Rho;
 use std::error::Error;
 use std::io::{stdin, stdout, Write};
+use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::thread::sleep;
@@ -16,29 +17,30 @@ use midir::{Ignore, MidiIO, MidiInput, MidiOutput};
 fn main() {
     let rho = Arc::new(Mutex::new(Rho::new()));
 
-    //env_logger::init(); // Log to stderr (if you run with `RUST_LOG=debug`).
+    env_logger::init(); // Log to stderr (if you run with `RUST_LOG=debug`).
 
     // run gui in the main thread, it has a transmission channel
+    let (tx, rx) = mpsc::channel();
 
-    let mut clock_arc = Arc::new(Mutex::new(Clock::new()));
+    let clock_arc = Arc::new(Mutex::new(Clock::new()));
     let sample_rate = 16.0;
     let period_ms = (1000.0 / sample_rate) as u64;
 
     // run a clock in another thread. This is equivalent of Audio
     let handle = thread::spawn(move || {
-        for _i in 0..100 {
+        for i in 0..1000 {
             let mut clock = clock_arc.lock().unwrap();
             clock.set_rate(0.5, sample_rate);
             let clock_out = clock.tick();
             thread::sleep(Duration::from_millis(period_ms));
-            print!("ticking");
             if let Some(c) = clock_out {
                 print!("clock {}", c);
             }
+            tx.send(i);
         }
     });
 
-    run_gui();
+    run_gui(rx);
     // match run_midi(rho) {
     //     Ok(_) => (),
     //     Err(err) => println!("Error: {}", err),
@@ -47,7 +49,7 @@ fn main() {
     handle.join().unwrap();
 }
 
-fn run_gui() {
+fn run_gui(rx: std::sync::mpsc::Receiver<i32>) {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default().with_inner_size([600.0, 600.0]),
         ..Default::default()
@@ -59,10 +61,14 @@ fn run_gui() {
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.heading("My egui Application");
             ui.add(egui::Slider::new(&mut density, 0..=127).text("density"));
+
             if ui.button("Squanchrement").clicked() {
                 // output a midi note
                 print!("Squanchrement");
             }
+            let i = rx.recv().unwrap();
+            let clock_string = String::from("Clock: ") + &i.to_string();
+            ui.label(clock_string);
         });
     });
 }
