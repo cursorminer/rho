@@ -165,6 +165,7 @@ impl GridActivations {
         let i = self.thresh.iter().position(|&x| x == density).unwrap();
 
         self.thresh.swap(step_index, i);
+        self.update_density();
         true
     }
 
@@ -190,7 +191,6 @@ impl GridActivations {
         for i in random_order {
             self.change_step_update_thresholds(i, original_active[i]);
         }
-
         debug_assert!(original_active == self.active);
     }
 
@@ -223,6 +223,7 @@ impl GridActivations {
         debug_assert!(self.active.len() == self.thresh.len());
 
         self.row_lengths[row_to_append] = new_length;
+        self.update_density();
     }
 
     pub fn remove_steps(&mut self, row_to_remove_from: usize, new_length: usize) {
@@ -249,6 +250,7 @@ impl GridActivations {
 
             self.row_lengths[row_to_remove_from] -= 1;
         }
+        self.update_density();
     }
 
     pub fn get_row_length(&self, row: usize) -> usize {
@@ -257,6 +259,15 @@ impl GridActivations {
 
     pub fn get(&self, row: usize, step: usize) -> bool {
         self.active[grid_index_to_flat_index((row, step), &self.row_lengths)]
+    }
+
+    // the steps have changed so change the density
+    pub fn update_density(&mut self) {
+        if self.get_total_num_steps() == 0 {
+            self.normalized_density = 0.0;
+        }
+        self.normalized_density =
+            self.num_active_steps() as f32 / self.get_total_num_steps() as f32;
     }
 }
 
@@ -275,6 +286,7 @@ mod tests {
             active: vec![false, false, false, false, false],
             thresh: vec![0, 1, 2, 4, 3],
             row_lengths: vec![1, 2, 3],
+            normalized_density: 0.0,
         };
 
         seq.set_activations_for_new_density(0);
@@ -292,6 +304,7 @@ mod tests {
             active: vec![false, true, false, false, true],
             thresh: vec![0, 1, 2, 4, 3],
             row_lengths: vec![1, 2, 3],
+            normalized_density: 0.0,
         };
 
         assert_eq!(seq.num_active_steps(), 2);
@@ -305,6 +318,7 @@ mod tests {
             active: vec![false, false, false, false, false],
             thresh: vec![0, 1, 2, 3, 4],
             row_lengths: vec![1, 2, 3],
+            normalized_density: 0.0,
         };
 
         let density: usize = 1;
@@ -334,6 +348,7 @@ mod tests {
             active: vec![false, true, false, false, true],
             thresh: vec![0, 1, 2, 3, 4],
             row_lengths: vec![1, 2, 3],
+            normalized_density: 0.0,
         };
 
         // 2, 0, 4, 3, 1
@@ -400,6 +415,7 @@ mod tests {
             active: vec![true, true, true, true, true, true],
             thresh: vec![0, 1, 2, 3, 4, 5],
             row_lengths: vec![1, 2, 3],
+            normalized_density: 0.0,
         };
 
         // insert a step at end of second row
@@ -416,6 +432,8 @@ mod tests {
 
         assert_eq!(seq.get_row_length(2), 3);
         assert_eq!(seq.get_row(2), vec![true, true, true]);
+
+        assert_eq!(seq.normalized_density, 6.0 / 7.0);
     }
 
     #[test]
@@ -424,12 +442,14 @@ mod tests {
             active: vec![],
             thresh: vec![],
             row_lengths: vec![0, 0, 0],
+            normalized_density: 0.0,
         };
 
         // insert a step at end of second row
         seq.append_steps(1, 1);
         let expected_active = vec![false];
         assert_eq!(seq.active, expected_active);
+        assert_eq!(seq.normalized_density, 0.0);
     }
 
     #[test]
@@ -438,6 +458,7 @@ mod tests {
             active: vec![true, true, true, false, false, false],
             thresh: vec![0, 1, 2, 3, 4, 5],
             row_lengths: vec![1, 2, 3],
+            normalized_density: 0.0,
         };
 
         // remove the second element of the second row, the third in the flat list
@@ -451,5 +472,7 @@ mod tests {
 
         let expected_row_lengths: Vec<usize> = vec![1, 1, 3];
         assert_eq!(seq.row_lengths, expected_row_lengths);
+
+        assert_eq!(seq.normalized_density, 2.0 / 5.0);
     }
 }
