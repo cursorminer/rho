@@ -10,6 +10,8 @@ use note_assigner::Note;
 use note_assigner::NoteAssigner;
 use note_assigner::NUM_ROWS;
 
+pub mod clock;
+
 pub mod looping_state;
 
 pub struct Rho {
