@@ -33,14 +33,14 @@ fn main() {
             clock.set_rate(0.5, sample_rate);
             let clock_out = clock.tick();
             thread::sleep(Duration::from_millis(period_ms));
+            let i = rx.recv().unwrap();
             if let Some(c) = clock_out {
-                print!("clock {}", c);
+                print!("clock {}, {}", c, i);
             }
-            tx.send(i);
         }
     });
 
-    run_gui(rx);
+    run_gui(tx);
     // match run_midi(rho) {
     //     Ok(_) => (),
     //     Err(err) => println!("Error: {}", err),
@@ -49,7 +49,7 @@ fn main() {
     handle.join().unwrap();
 }
 
-fn run_gui(rx: std::sync::mpsc::Receiver<i32>) {
+fn run_gui(tx: std::sync::mpsc::Sender<i32>) {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default().with_inner_size([600.0, 600.0]),
         ..Default::default()
@@ -66,9 +66,8 @@ fn run_gui(rx: std::sync::mpsc::Receiver<i32>) {
                 // output a midi note
                 print!("Squanchrement");
             }
-            let i = rx.recv().unwrap();
-            let clock_string = String::from("Clock: ") + &i.to_string();
-            ui.label(clock_string);
+
+            tx.send(density);
         });
     });
 }
