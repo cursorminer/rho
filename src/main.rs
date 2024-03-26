@@ -34,7 +34,7 @@ fn main() {
     // run a clock in another thread. This is equivalent of Audio
     // rho will be passed  in here
     let handle = thread::spawn(move || {
-        for i in 0..100 {
+        for _i in 0..100 {
             let mut clock = clock_arc.lock().unwrap();
 
             let mut rho = rho.lock().unwrap();
@@ -46,17 +46,18 @@ fn main() {
                     // clock high
                     // process messages from UI
 
-                    let m = rx.recv().unwrap();
-                    match m {
-                        MessageToRho::SetDensity { density } => {
-                            print!("clock {}, density {}\n", c, density);
-                            rho.set_density(density);
+                    for message in &rx {
+                        match message {
+                            MessageToRho::SetDensity { density } => {
+                                print!("clock {}, density {}\n", c, density);
+                                rho.set_density(density);
+                            }
+                            MessageToRho::SetRowLength { row, length } => {
+                                print!("row {}, length {}\n", row, length);
+                                rho.set_row_length(row, length);
+                            }
+                            _ => print!("nothing"),
                         }
-                        MessageToRho::SetRowLength { row, length } => {
-                            print!("row {}, length {}\n", row, length);
-                            rho.set_row_length(row, length);
-                        }
-                        _ => print!("nothing"),
                     }
 
                     rho.on_clock_high();
@@ -101,11 +102,11 @@ fn run_gui(tx: std::sync::mpsc::Sender<MessageToRho>) {
             let norm_density = density as f32 / 127.0;
 
             tx.send(MessageToRho::SetDensity {
-                density: (norm_density),
+                density: norm_density,
             });
             tx.send(MessageToRho::SetRowLength {
-                row: (0),
-                length: (row_length),
+                row: (1),
+                length: row_length,
             });
         });
     });
