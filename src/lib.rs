@@ -33,6 +33,9 @@ impl Rho {
     }
 
     pub fn set_row_length(&mut self, row: usize, length: usize) {
+        if row >= NUM_ROWS || length < 1 {
+            return;
+        }
         self.grid_activations.set_row_length(row, length);
         self.row_loopers[row].data.resize(length, false);
         self.update_row_looper_from_grid();
