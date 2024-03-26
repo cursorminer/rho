@@ -61,9 +61,11 @@ fn main() {
                     }
 
                     rho.on_clock_high();
+                    // play midi notes here
                 } else {
                     // clock low
                     rho.on_clock_low();
+                    // stop midi notes here
                 }
             }
             // send messages back to GUI if needed
