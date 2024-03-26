@@ -42,16 +42,26 @@ fn main() {
             clock.set_rate(0.5, sample_rate);
             let clock_out = clock.tick();
             if let Some(c) = clock_out {
-                let m = rx.recv().unwrap();
-                match m {
-                    MessageToRho::SetDensity { density } => {
-                        print!("clock {}, density {}\n", c, density);
-                        rho.set_density(density);
+                if (c) {
+                    // clock high
+                    // process messages from UI
+
+                    let m = rx.recv().unwrap();
+                    match m {
+                        MessageToRho::SetDensity { density } => {
+                            print!("clock {}, density {}\n", c, density);
+                            rho.set_density(density);
+                        }
+                        MessageToRho::SetRowLength { row, length } => {
+                            rho.set_row_length(row, length);
+                        }
+                        _ => print!("nothing"),
                     }
-                    MessageToRho::SetRowLength { row, length } => {
-                        rho.set_row_length(row, length);
-                    }
-                    _ => print!("nothing"),
+
+                    rho.on_clock_high();
+                } else {
+                    // clock low
+                    rho.on_clock_low();
                 }
             }
             thread::sleep(Duration::from_millis(period_ms));

@@ -14,8 +14,6 @@ pub mod clock;
 
 pub mod looping_state;
 
-// message enums. Used to send from GUI to rho
-
 pub struct Rho {
     grid_activations: GridActivations,
     note_assigner: NoteAssigner,
@@ -45,12 +43,7 @@ impl Rho {
         Rho {
             grid_activations: GridActivations::new(NUM_ROWS, DEFAULT_STEP_LEN),
             note_assigner: NoteAssigner::new(),
-            row_loopers: [
-                Default::default(),
-                Default::default(),
-                Default::default(),
-                Default::default(), // surely an easier way
-            ],
+            row_loopers: Default::default(),
             playing_notes: vec![],
         }
     }
