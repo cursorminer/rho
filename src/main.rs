@@ -14,6 +14,11 @@ use std::time::Duration;
 
 use midir::{Ignore, MidiIO, MidiInput, MidiOutput};
 
+enum MessageToRho {
+    SetDensity { density: f32 },
+    SetRowLength { row: usize, length: usize },
+}
+
 fn main() {
     let rho = Arc::new(Mutex::new(Rho::new()));
 
@@ -27,16 +32,29 @@ fn main() {
     let period_ms = (1000.0 / sample_rate) as u64;
 
     // run a clock in another thread. This is equivalent of Audio
+    // rho will be passed  in here
     let handle = thread::spawn(move || {
-        for i in 0..1000 {
+        for i in 0..100 {
             let mut clock = clock_arc.lock().unwrap();
+
+            let mut rho = rho.lock().unwrap();
+
             clock.set_rate(0.5, sample_rate);
             let clock_out = clock.tick();
-            thread::sleep(Duration::from_millis(period_ms));
-            let i = rx.recv().unwrap();
             if let Some(c) = clock_out {
-                print!("clock {}, {}", c, i);
+                let m = rx.recv().unwrap();
+                match m {
+                    MessageToRho::SetDensity { density } => {
+                        print!("clock {}, density {}\n", c, density);
+                        rho.set_density(density);
+                    }
+                    MessageToRho::SetRowLength { row, length } => {
+                        rho.set_row_length(row, length);
+                    }
+                    _ => print!("nothing"),
+                }
             }
+            thread::sleep(Duration::from_millis(period_ms));
         }
     });
 
@@ -49,7 +67,7 @@ fn main() {
     handle.join().unwrap();
 }
 
-fn run_gui(tx: std::sync::mpsc::Sender<i32>) {
+fn run_gui(tx: std::sync::mpsc::Sender<MessageToRho>) {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default().with_inner_size([600.0, 600.0]),
         ..Default::default()
@@ -66,8 +84,11 @@ fn run_gui(tx: std::sync::mpsc::Sender<i32>) {
                 // output a midi note
                 print!("Squanchrement");
             }
+            let norm_density = density as f32 / 127.0;
 
-            tx.send(density);
+            tx.send(MessageToRho::SetDensity {
+                density: norm_density,
+            });
         });
     });
 }

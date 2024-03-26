@@ -14,6 +14,8 @@ pub mod clock;
 
 pub mod looping_state;
 
+// message enums. Used to send from GUI to rho
+
 pub struct Rho {
     grid_activations: GridActivations,
     note_assigner: NoteAssigner,
@@ -26,9 +28,16 @@ pub struct Rho {
 impl Rho {
     pub fn set_density(&mut self, density: f32) {
         self.grid_activations.set_normalized_density(density);
+        self.update_row_looper_from_grid();
     }
     pub fn get_density(&self) -> f32 {
         self.grid_activations.get_density()
+    }
+
+    pub fn set_row_length(&mut self, row: usize, length: usize) {
+        self.grid_activations.set_row_length(row, length);
+        self.row_loopers[row].data.resize(length, false);
+        self.update_row_looper_from_grid();
     }
 
     pub fn new() -> Self {
@@ -48,11 +57,13 @@ impl Rho {
     pub fn note_on(&mut self, note: usize, velocity: usize) {
         self.note_assigner.note_on(note, velocity);
         self.note_assigner.print_row_notes();
+        self.update_row_looper_from_grid();
     }
 
     pub fn note_off(&mut self, note: usize) {
         self.note_assigner.note_off(note);
         self.note_assigner.print_row_notes();
+        self.update_row_looper_from_grid();
     }
 
     pub fn on_clock_high(&mut self) {
@@ -77,6 +88,7 @@ impl Rho {
         for note in notes {
             self.playing_notes.push(note);
         }
+        // should this have callback?
     }
 
     fn tick_rows(&mut self) -> Vec<usize> {
