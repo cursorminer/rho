@@ -42,7 +42,7 @@ fn main() {
             clock.set_rate(0.5, sample_rate);
             let clock_out = clock.tick();
             if let Some(c) = clock_out {
-                if (c) {
+                if c {
                     // clock high
                     // process messages from UI
 
@@ -53,6 +53,7 @@ fn main() {
                             rho.set_density(density);
                         }
                         MessageToRho::SetRowLength { row, length } => {
+                            print!("row {}, length {}\n", row, length);
                             rho.set_row_length(row, length);
                         }
                         _ => print!("nothing"),
@@ -64,6 +65,7 @@ fn main() {
                     rho.on_clock_low();
                 }
             }
+            // send messages back to GUI if needed
             thread::sleep(Duration::from_millis(period_ms));
         }
     });
@@ -84,11 +86,13 @@ fn run_gui(tx: std::sync::mpsc::Sender<MessageToRho>) {
     };
 
     let mut density: i32 = 0;
+    let mut row_length: usize = 0;
 
     let _ = eframe::run_simple_native("My egui App", options, move |ctx, _frame| {
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.heading("My egui Application");
             ui.add(egui::Slider::new(&mut density, 0..=127).text("density"));
+            ui.add(egui::Slider::new(&mut row_length, 2..=8).text("Row Length"));
 
             if ui.button("Squanchrement").clicked() {
                 // output a midi note
@@ -97,7 +101,11 @@ fn run_gui(tx: std::sync::mpsc::Sender<MessageToRho>) {
             let norm_density = density as f32 / 127.0;
 
             tx.send(MessageToRho::SetDensity {
-                density: norm_density,
+                density: (norm_density),
+            });
+            tx.send(MessageToRho::SetRowLength {
+                row: (0),
+                length: (row_length),
             });
         });
     });
