@@ -8,6 +8,7 @@ use shitquencer::note_assigner::Note;
 use shitquencer::Rho;
 use std::error::Error;
 use std::io::{stdin, stdout, Write};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -21,6 +22,8 @@ enum MessageToRho {
 }
 
 fn main() {
+    let running = Arc::new(AtomicBool::new(true));
+    let r = running.clone();
     let rho = Arc::new(Mutex::new(Rho::new()));
 
     env_logger::init(); // Log to stderr (if you run with `RUST_LOG=debug`).
@@ -28,23 +31,22 @@ fn main() {
     // run gui in the main thread, it has a transmission channel
     let (tx, rx) = mpsc::channel();
 
-    let clock_thread_handle = run_clock(rx, rho);
+    let clock_thread_handle = run_clock(rx, rho, running);
 
     run_gui(tx);
-    // match run_midi(rho) {
-    //     Ok(_) => (),
-    //     Err(err) => println!("Error: {}", err),
-    // }
 
+    // when gui stops, we stop the clock thread via this atomic bool
+    r.store(false, Ordering::SeqCst);
     clock_thread_handle.join().unwrap();
 }
 
 fn run_clock(
     rx: std::sync::mpsc::Receiver<MessageToRho>,
     rho: Arc<Mutex<Rho>>,
+    running: Arc<AtomicBool>,
 ) -> thread::JoinHandle<()> {
     let clock_arc = Arc::new(Mutex::new(Clock::new()));
-    let sample_rate = 16.0;
+    let sample_rate = 32.0;
     let period_ms = (1000.0 / sample_rate) as u64;
 
     let midi_out_conn = get_midi_out_connection();
@@ -69,10 +71,14 @@ fn run_clock(
             }
         };
 
-        for _i in 0..100 {
-            let mut clock = clock_arc.lock().unwrap();
+        // fake note on and trigger setting
 
-            let mut rho = rho.lock().unwrap();
+        let mut rho = rho.lock().unwrap();
+        rho.note_on(60, 100);
+        rho.set_density(0.9);
+
+        while running.load(Ordering::SeqCst) {
+            let mut clock = clock_arc.lock().unwrap();
 
             clock.set_rate(0.5, sample_rate);
             let clock_out = clock.tick();
@@ -81,19 +87,18 @@ fn run_clock(
                     // clock high
                     // process messages from UI
 
-                    for message in &rx {
-                        match message {
-                            MessageToRho::SetDensity { density } => {
-                                print!("clock {}, density {}\n", c, density);
-                                rho.set_density(density);
-                            }
-                            MessageToRho::SetRowLength { row, length } => {
-                                print!("row {}, length {}\n", row, length);
-                                rho.set_row_length(row, length);
-                            }
+                    match rx.try_recv() {
+                        Ok(MessageToRho::SetDensity { density }) => {
+                            print!("clock {}, density {}\n", c, density);
+                            rho.set_density(density);
                         }
+                        Ok(MessageToRho::SetRowLength { row, length }) => {
+                            print!("row {}, length {}\n", row, length);
+                            rho.set_row_length(row, length);
+                        }
+                        _ => (),
                     }
-
+                    // this doesn't work because the above will keep processing messages till the end...?
                     let starting_notes = rho.on_clock_high();
                     // play midi notes here
                     for note in starting_notes {
