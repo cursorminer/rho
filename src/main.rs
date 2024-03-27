@@ -65,8 +65,10 @@ fn run_clock(
             const VELOCITY: u8 = 0x64;
             // We're ignoring errors in here
             if on {
+                print!("starting note {}\n", note.note_number as u8);
                 let _ = midi_out_conn.send(&[NOTE_ON_MSG, note.note_number as u8, VELOCITY]);
             } else {
+                print!("stopin note {}\n", note.note_number as u8);
                 let _ = midi_out_conn.send(&[NOTE_OFF_MSG, note.note_number as u8, VELOCITY]);
             }
         };
@@ -75,29 +77,30 @@ fn run_clock(
 
         let mut rho = rho.lock().unwrap();
         rho.note_on(60, 100);
+        rho.note_on(69, 100);
         rho.set_density(0.9);
 
         while running.load(Ordering::SeqCst) {
             let mut clock = clock_arc.lock().unwrap();
+            match rx.try_recv() {
+                Ok(MessageToRho::SetDensity { density }) => {
+                    print!("recieved density {}\n", density);
+                    rho.set_density(density);
+                }
+                Ok(MessageToRho::SetRowLength { row, length }) => {
+                    print!("recieved row {}, length {}\n", row, length);
+                    rho.set_row_length(row, length);
+                }
+                _ => (),
+            }
 
-            clock.set_rate(0.5, sample_rate);
+            clock.set_rate(2.0, sample_rate);
             let clock_out = clock.tick();
             if let Some(c) = clock_out {
                 if c {
                     // clock high
                     // process messages from UI
 
-                    match rx.try_recv() {
-                        Ok(MessageToRho::SetDensity { density }) => {
-                            print!("clock {}, density {}\n", c, density);
-                            rho.set_density(density);
-                        }
-                        Ok(MessageToRho::SetRowLength { row, length }) => {
-                            print!("row {}, length {}\n", row, length);
-                            rho.set_row_length(row, length);
-                        }
-                        _ => (),
-                    }
                     // this doesn't work because the above will keep processing messages till the end...?
                     let starting_notes = rho.on_clock_high();
                     // play midi notes here
@@ -132,22 +135,25 @@ fn run_gui(tx: std::sync::mpsc::Sender<MessageToRho>) {
     let _ = eframe::run_simple_native("My egui App", options, move |ctx, _frame| {
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.heading("My egui Application");
-            ui.add(egui::Slider::new(&mut density, 0..=127).text("density"));
-            ui.add(egui::Slider::new(&mut row_length, 2..=8).text("Row Length"));
-
-            if ui.button("Squanchrement").clicked() {
-                // output a midi note
-                print!("Squanchrement");
+            if ui
+                .add(egui::Slider::new(&mut density, 0..=127).text("density"))
+                .changed()
+            {
+                let norm_density = density as f32 / 127.0;
+                let _ = tx.send(MessageToRho::SetDensity {
+                    density: norm_density,
+                });
             }
-            let norm_density = density as f32 / 127.0;
 
-            let _ = tx.send(MessageToRho::SetDensity {
-                density: norm_density,
-            });
-            let _ = tx.send(MessageToRho::SetRowLength {
-                row: (1),
-                length: row_length,
-            });
+            if ui
+                .add(egui::Slider::new(&mut row_length, 2..=8).text("Row Length"))
+                .changed()
+            {
+                let _ = tx.send(MessageToRho::SetRowLength {
+                    row: (1),
+                    length: row_length,
+                });
+            }
         });
     });
 }
