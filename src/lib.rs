@@ -63,7 +63,7 @@ impl Rho {
         self.update_row_looper_from_grid();
     }
 
-    pub fn on_clock_high(&mut self) {
+    pub fn on_clock_high(&mut self) -> Vec<note_assigner::Note> {
         self.update_row_looper_from_grid(); // maybe should happen from UI listeners
 
         // get the rows that are triggered by ticking the row loopers
@@ -71,21 +71,23 @@ impl Rho {
 
         let notes_to_play = self.note_assigner.get_next_notes(triggered_rows);
 
-        self.play_midi_notes(notes_to_play);
+        self.track_midi_notes(notes_to_play.clone());
 
         // keep track of the midi notes
+        notes_to_play
     }
 
-    pub fn on_clock_low(&mut self) {
+    pub fn on_clock_low(&mut self) -> Vec<note_assigner::Note> {
         // send note offs for all the notes
+        let notes_to_stop = self.playing_notes.clone();
         self.playing_notes.clear();
+        notes_to_stop
     }
 
-    fn play_midi_notes(&mut self, notes: Vec<note_assigner::Note>) {
+    fn track_midi_notes(&mut self, notes: Vec<note_assigner::Note>) {
         for note in notes {
             self.playing_notes.push(note);
         }
-        // should this have callback?
     }
 
     fn tick_rows(&mut self) -> Vec<usize> {

@@ -9,8 +9,8 @@ pub const NUM_ROWS: usize = 4;
 // a midi note
 #[derive(Debug, Clone, Copy)]
 pub struct Note {
-    note_number: usize,
-    velocity: usize,
+    pub note_number: usize,
+    pub velocity: usize,
 }
 
 impl PartialEq for Note {

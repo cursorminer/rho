@@ -2,17 +2,18 @@
 extern crate shitquencer;
 
 use eframe::egui;
+use midir::MidiOutputConnection;
 use shitquencer::clock::Clock;
+use shitquencer::note_assigner::Note;
 use shitquencer::Rho;
 use std::error::Error;
 use std::io::{stdin, stdout, Write};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::thread::sleep;
 use std::time::Duration;
 
-use midir::{Ignore, MidiIO, MidiInput, MidiOutput};
+use midir::{Ignore, MidiIO, MidiInput, MidiInputConnection, MidiOutput};
 
 enum MessageToRho {
     SetDensity { density: f32 },
@@ -27,13 +28,47 @@ fn main() {
     // run gui in the main thread, it has a transmission channel
     let (tx, rx) = mpsc::channel();
 
+    let clock_thread_handle = run_clock(rx, rho);
+
+    run_gui(tx);
+    // match run_midi(rho) {
+    //     Ok(_) => (),
+    //     Err(err) => println!("Error: {}", err),
+    // }
+
+    clock_thread_handle.join().unwrap();
+}
+
+fn run_clock(
+    rx: std::sync::mpsc::Receiver<MessageToRho>,
+    rho: Arc<Mutex<Rho>>,
+) -> thread::JoinHandle<()> {
     let clock_arc = Arc::new(Mutex::new(Clock::new()));
     let sample_rate = 16.0;
     let period_ms = (1000.0 / sample_rate) as u64;
 
+    let midi_out_conn = get_midi_out_connection();
+    if let Err(err) = midi_out_conn {
+        println!("Error: {}", err);
+        return thread::spawn(|| {});
+    }
+    let mut midi_out_conn = midi_out_conn.unwrap();
+
     // run a clock in another thread. This is equivalent of Audio
     // rho will be passed  in here
     let handle = thread::spawn(move || {
+        let mut send_midi = |note: Note, on| {
+            const NOTE_ON_MSG: u8 = 0x90;
+            const NOTE_OFF_MSG: u8 = 0x80;
+            const VELOCITY: u8 = 0x64;
+            // We're ignoring errors in here
+            if on {
+                let _ = midi_out_conn.send(&[NOTE_ON_MSG, note.note_number as u8, VELOCITY]);
+            } else {
+                let _ = midi_out_conn.send(&[NOTE_OFF_MSG, note.note_number as u8, VELOCITY]);
+            }
+        };
+
         for _i in 0..100 {
             let mut clock = clock_arc.lock().unwrap();
 
@@ -56,30 +91,28 @@ fn main() {
                                 print!("row {}, length {}\n", row, length);
                                 rho.set_row_length(row, length);
                             }
-                            _ => print!("nothing"),
                         }
                     }
 
-                    rho.on_clock_high();
+                    let starting_notes = rho.on_clock_high();
                     // play midi notes here
+                    for note in starting_notes {
+                        send_midi(note, true);
+                    }
                 } else {
                     // clock low
-                    rho.on_clock_low();
+                    let finishing_notes = rho.on_clock_low();
                     // stop midi notes here
+                    for note in finishing_notes {
+                        send_midi(note, false);
+                    }
                 }
             }
             // send messages back to GUI if needed
             thread::sleep(Duration::from_millis(period_ms));
         }
     });
-
-    run_gui(tx);
-    // match run_midi(rho) {
-    //     Ok(_) => (),
-    //     Err(err) => println!("Error: {}", err),
-    // }
-
-    handle.join().unwrap();
+    handle
 }
 
 fn run_gui(tx: std::sync::mpsc::Sender<MessageToRho>) {
@@ -103,10 +136,10 @@ fn run_gui(tx: std::sync::mpsc::Sender<MessageToRho>) {
             }
             let norm_density = density as f32 / 127.0;
 
-            tx.send(MessageToRho::SetDensity {
+            let _ = tx.send(MessageToRho::SetDensity {
                 density: norm_density,
             });
-            tx.send(MessageToRho::SetRowLength {
+            let _ = tx.send(MessageToRho::SetRowLength {
                 row: (1),
                 length: row_length,
             });
@@ -114,40 +147,34 @@ fn run_gui(tx: std::sync::mpsc::Sender<MessageToRho>) {
     });
 }
 
-fn run_midi(rho: Arc<Mutex<Rho>>) -> Result<(), Box<dyn Error>> {
-    let mut midi_in = MidiInput::new("midir forwarding input")?;
+fn get_midi_in_connection() -> Result<MidiInputConnection<()>, Box<dyn Error>> {
+    let mut midi_in = MidiInput::new("midir input")?;
     midi_in.ignore(Ignore::None);
-    let midi_out = MidiOutput::new("midir forwarding output")?;
-
     let in_port = select_port(&midi_in, "input")?;
+
+    let conn_in = midi_in.connect(&in_port, "midir-input", move |_stamp, _message, _| {}, ())?;
+    Ok(conn_in)
+}
+
+fn get_midi_out_connection() -> Result<MidiOutputConnection, Box<dyn Error>> {
+    let midi_out = MidiOutput::new("midir output")?;
+
     println!();
     let out_port = select_port(&midi_out, "output")?;
 
-    println!("\nOpening connections");
     // let in_port_name = midi_in.port_name(&in_port)?;
-    // let out_port_name = midi_out.port_name(&out_port)?;
+    let out_port_name = midi_out.port_name(&out_port)?;
 
-    let mut conn_out = midi_out.connect(&out_port, "midir-forward")?;
+    let conn_out = midi_out.connect(&out_port, &out_port_name)?;
 
-    // _conn_in needs to be a named parameter, because it needs to be kept alive until the end of the scope
-    let _conn_in = midi_in.connect(&in_port, "midir-forward", move |stamp, message, _| {}, ())?;
+    // how you use the connection
+    // const NOTE_ON_MSG: u8 = 0x90;
+    // const NOTE_OFF_MSG: u8 = 0x80;
+    // const VELOCITY: u8 = 0x64;
+    // // We're ignoring errors in here
+    // let _ = conn_out.send(&[NOTE_ON_MSG, note, VELOCITY]);
 
-    // Define a new scope in which the closure `play_note` borrows conn_out, so it can be called easily
-    let mut play_note = |note: u8, duration: u64| {
-        const NOTE_ON_MSG: u8 = 0x90;
-        const NOTE_OFF_MSG: u8 = 0x80;
-        const VELOCITY: u8 = 0x64;
-        // We're ignoring errors in here
-        let _ = conn_out.send(&[NOTE_ON_MSG, note, VELOCITY]);
-        sleep(Duration::from_millis(duration * 150));
-        let _ = conn_out.send(&[NOTE_OFF_MSG, note, VELOCITY]);
-    };
-
-    let mut input = String::new();
-    stdin().read_line(&mut input)?; // wait for next enter key press
-
-    println!("Closing connections");
-    Ok(())
+    Ok(conn_out)
 }
 
 fn on_midi_in(rho: &mut Rho, _stamp: u64, message: &[u8]) {
