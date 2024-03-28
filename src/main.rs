@@ -4,7 +4,9 @@ extern crate shitquencer;
 use eframe::egui;
 use midir::MidiOutputConnection;
 use shitquencer::clock::Clock;
+use shitquencer::grid_activations::GridActivations;
 use shitquencer::note_assigner::Note;
+use shitquencer::rho_config::NUM_ROWS;
 use shitquencer::Rho;
 use shitquencer::Rows;
 use std::error::Error;
@@ -17,19 +19,25 @@ use std::time::Duration;
 
 use midir::{Ignore, MidiIO, MidiInput, MidiInputConnection, MidiOutput};
 
+// the gui sends messages to the clock thread
+// it needs to send: row activations so that the steps are updated
 enum MessageToRho {
-    SetDensity { density: f32 },
-    SetRowLength { row: usize, length: usize },
+    SetRowActivations { rows: [Vec<bool>; NUM_ROWS] },
 }
 
+// the clock thread sends messages to the gui
+// it needs to send: note assignments, which steps are playing, so the gui can display playing state
 enum MessageToGui {
-    SetRows { row_states: Rows },
+    SetNotesForRows { notes: [Vec<usize>; NUM_ROWS] },
+    SetStepPlayCounter { steps: [usize; NUM_ROWS] },
 }
 
 fn main() {
     let running = Arc::new(AtomicBool::new(true));
     let r = running.clone();
+
     let rho = Arc::new(Mutex::new(Rho::new()));
+    let grid = Arc::new(Mutex::new(GridActivations::new(4, 4)));
 
     env_logger::init(); // Log to stderr (if you run with `RUST_LOG=debug`).
 
@@ -39,7 +47,7 @@ fn main() {
 
     let clock_thread_handle = run_clock(rxToRhoFromGui, txFromRhoToGui, rho, running);
 
-    run_gui(txFromGuiToRho, rxToGuiFromRho);
+    run_gui(txFromGuiToRho, rxToGuiFromRho, grid);
 
     // when gui stops, we stop the clock thread via this atomic bool
     r.store(false, Ordering::SeqCst);
@@ -85,18 +93,14 @@ fn run_clock(
         let mut rho = rho.lock().unwrap();
         rho.note_on(60, 100);
         rho.note_on(69, 100);
-        rho.set_density(0.9);
 
         while running.load(Ordering::SeqCst) {
             let mut clock = clock_arc.lock().unwrap();
+
+            // process messages from GUI
             match rx.try_recv() {
-                Ok(MessageToRho::SetDensity { density }) => {
-                    print!("recieved density {}\n", density);
-                    rho.set_density(density);
-                }
-                Ok(MessageToRho::SetRowLength { row, length }) => {
-                    print!("recieved row {}, length {}\n", row, length);
-                    rho.set_row_length(row, length);
+                Ok(MessageToRho::SetRowActivations { rows }) => {
+                    print!("recieved rows\n");
                 }
                 _ => (),
             }
@@ -134,7 +138,11 @@ fn run_clock(
     handle
 }
 
-fn run_gui(tx: std::sync::mpsc::Sender<MessageToRho>, rx: std::sync::mpsc::Receiver<MessageToGui>) {
+fn run_gui(
+    tx: std::sync::mpsc::Sender<MessageToRho>,
+    rx: std::sync::mpsc::Receiver<MessageToGui>,
+    grid: Arc<Mutex<GridActivations>>,
+) {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default().with_inner_size([600.0, 600.0]),
         ..Default::default()
@@ -145,10 +153,12 @@ fn run_gui(tx: std::sync::mpsc::Sender<MessageToRho>, rx: std::sync::mpsc::Recei
 
     let _ = eframe::run_simple_native("My egui App", options, move |ctx, _frame| {
         egui::CentralPanel::default().show(ctx, |ui| {
+            let mut grid = grid.lock().unwrap();
+
             // process messages from Rho
             match rx.try_recv() {
-                Ok(MessageToGui::SetRows { row_states }) => {
-                    print!("recieved rows {:?}\n", row_states[0].data);
+                Ok(MessageToGui::SetNotesForRows { notes }) => {
+                    print!("recieved notes {:?}\n", notes);
                 }
                 _ => (),
             }
@@ -159,20 +169,13 @@ fn run_gui(tx: std::sync::mpsc::Sender<MessageToRho>, rx: std::sync::mpsc::Recei
                 .changed()
             {
                 let norm_density = density as f32 / 127.0;
-                let _ = tx.send(MessageToRho::SetDensity {
-                    density: norm_density,
-                });
+                grid.set_normalized_density(norm_density);
             }
 
             if ui
                 .add(egui::Slider::new(&mut row_length, 2..=8).text("Row Length"))
                 .changed()
-            {
-                let _ = tx.send(MessageToRho::SetRowLength {
-                    row: (1),
-                    length: row_length,
-                });
-            }
+            {}
 
             let row_length = 8;
 
@@ -181,6 +184,10 @@ fn run_gui(tx: std::sync::mpsc::Sender<MessageToRho>, rx: std::sync::mpsc::Recei
                 for j in 0..row_length {
                     ui.checkbox(&mut false, "");
                 }
+            });
+
+            let _ = tx.send(MessageToRho::SetRowActivations {
+                rows: grid.get_row_activations(),
             });
         });
     });

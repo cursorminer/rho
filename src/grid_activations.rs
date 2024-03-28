@@ -5,6 +5,8 @@ extern crate rand;
 use crate::rand::prelude::SliceRandom;
 use rand::thread_rng;
 
+use crate::rho_config::NUM_ROWS;
+
 //--------------------------------------------------------------------------------
 // TODOs
 //
@@ -136,6 +138,14 @@ impl GridActivations {
         let start = self.row_lengths[0..index].iter().sum();
         let end = start + self.row_lengths[index];
         self.active[start..end].to_vec()
+    }
+
+    pub fn get_row_activations(&self) -> [Vec<bool>; NUM_ROWS] {
+        let mut result: [Vec<bool>; NUM_ROWS] = Default::default();
+        for i in 0..self.row_lengths.len() {
+            result[i] = self.get_row(i);
+        }
+        result
     }
 
     fn num_active_steps(&self) -> usize {

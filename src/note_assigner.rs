@@ -1,10 +1,9 @@
 #![allow(dead_code)]
 
 use crate::looping_state::LoopingSequence;
+use crate::rho_config::NUM_ROWS;
 use std::cmp::PartialOrd;
 use std::fmt;
-
-pub const NUM_ROWS: usize = 4;
 
 // a midi note
 #[derive(Debug, Clone, Copy)]
