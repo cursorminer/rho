@@ -6,6 +6,7 @@ use midir::MidiOutputConnection;
 use shitquencer::clock::Clock;
 use shitquencer::note_assigner::Note;
 use shitquencer::Rho;
+use shitquencer::Rows;
 use std::error::Error;
 use std::io::{stdin, stdout, Write};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -21,6 +22,10 @@ enum MessageToRho {
     SetRowLength { row: usize, length: usize },
 }
 
+enum MessageToGui {
+    SetRows { row_states: Rows },
+}
+
 fn main() {
     let running = Arc::new(AtomicBool::new(true));
     let r = running.clone();
@@ -29,11 +34,12 @@ fn main() {
     env_logger::init(); // Log to stderr (if you run with `RUST_LOG=debug`).
 
     // run gui in the main thread, it has a transmission channel
-    let (tx, rx) = mpsc::channel();
+    let (txFromGuiToRho, rxToRhoFromGui) = mpsc::channel();
+    let (txFromRhoToGui, rxToGuiFromRho) = mpsc::channel();
 
-    let clock_thread_handle = run_clock(rx, rho, running);
+    let clock_thread_handle = run_clock(rxToRhoFromGui, txFromRhoToGui, rho, running);
 
-    run_gui(tx);
+    run_gui(txFromGuiToRho, rxToGuiFromRho);
 
     // when gui stops, we stop the clock thread via this atomic bool
     r.store(false, Ordering::SeqCst);
@@ -42,6 +48,7 @@ fn main() {
 
 fn run_clock(
     rx: std::sync::mpsc::Receiver<MessageToRho>,
+    tx: std::sync::mpsc::Sender<MessageToGui>,
     rho: Arc<Mutex<Rho>>,
     running: Arc<AtomicBool>,
 ) -> thread::JoinHandle<()> {
@@ -117,13 +124,17 @@ fn run_clock(
                 }
             }
             // send messages back to GUI if needed
+            // let rows = rho.get_cloned_row_loopers();
+            // let _ = tx.send(MessageToGui::SetRows { row_states: rows });
+
             thread::sleep(Duration::from_millis(period_ms));
         }
     });
+    // TODO stop playing midi notes!
     handle
 }
 
-fn run_gui(tx: std::sync::mpsc::Sender<MessageToRho>) {
+fn run_gui(tx: std::sync::mpsc::Sender<MessageToRho>, rx: std::sync::mpsc::Receiver<MessageToGui>) {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default().with_inner_size([600.0, 600.0]),
         ..Default::default()
@@ -134,6 +145,14 @@ fn run_gui(tx: std::sync::mpsc::Sender<MessageToRho>) {
 
     let _ = eframe::run_simple_native("My egui App", options, move |ctx, _frame| {
         egui::CentralPanel::default().show(ctx, |ui| {
+            // process messages from Rho
+            match rx.try_recv() {
+                Ok(MessageToGui::SetRows { row_states }) => {
+                    print!("recieved rows {:?}\n", row_states[0].data);
+                }
+                _ => (),
+            }
+
             ui.heading("My egui Application");
             if ui
                 .add(egui::Slider::new(&mut density, 0..=127).text("density"))
@@ -154,6 +173,15 @@ fn run_gui(tx: std::sync::mpsc::Sender<MessageToRho>) {
                     length: row_length,
                 });
             }
+
+            let row_length = 8;
+
+            // add a horizontal row of checkboxes
+            ui.horizontal(|ui| {
+                for j in 0..row_length {
+                    ui.checkbox(&mut false, "");
+                }
+            });
         });
     });
 }

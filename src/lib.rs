@@ -15,12 +15,14 @@ pub mod phasor;
 
 pub mod looping_state;
 
+pub type Rows = [looping_state::LoopingSequence<bool>; NUM_ROWS];
+
 pub struct Rho {
     grid_activations: GridActivations,
     note_assigner: NoteAssigner,
     // todo: we have this, but we also have the row_length in the grid_activations ,
     //which is a bit redundant and the states could become out of sync
-    row_loopers: [looping_state::LoopingSequence<bool>; NUM_ROWS],
+    row_loopers: Rows,
     playing_notes: Vec<Note>,
 }
 
