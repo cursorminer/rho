@@ -5,6 +5,7 @@ extern crate rand;
 pub mod grid_activations;
 pub mod note_assigner;
 pub mod rho_config;
+pub mod step_switch;
 
 use note_assigner::Note;
 use note_assigner::NoteAssigner;

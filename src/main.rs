@@ -7,6 +7,7 @@ use shitquencer::clock::Clock;
 use shitquencer::grid_activations::GridActivations;
 use shitquencer::note_assigner::Note;
 use shitquencer::rho_config::NUM_ROWS;
+use shitquencer::step_switch::*;
 use shitquencer::Rho;
 use std::error::Error;
 use std::io::{stdin, stdout, Write};
@@ -107,8 +108,8 @@ fn run_gui(rx: std::sync::mpsc::Receiver<Tick>, mut grid: GridActivations) {
     };
 
     let _ = eframe::run_simple_native("My egui App", options, move |ctx, _frame| {
+        // set up midi list here
         egui::CentralPanel::default().show(ctx, |ui| {
-            // process messages from Rho
             match rx.try_recv() {
                 Ok(Tick { high }) => {
                     print!("TICK {:?}\n", high);
@@ -132,7 +133,7 @@ fn run_gui(rx: std::sync::mpsc::Receiver<Tick>, mut grid: GridActivations) {
                     let mut row_length = grid.row_length(row);
                     for step in 0..row_length {
                         let mut active = grid.get(row, step);
-                        if ui.checkbox(&mut active, "").changed() {
+                        if toggle_ui(ui, &mut active).changed() {
                             grid.set(row, step, active);
                         }
                     }
