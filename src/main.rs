@@ -71,6 +71,14 @@ fn run_clock(
     }
     let mut midi_out_conn = midi_out_conn.unwrap();
 
+    let midi_in_conn = get_midi_in_connection(rho.lock().unwrap());
+
+    if let Err(err) = midi_in_conn {
+        println!("Error: {}", err);
+        return thread::spawn(|| {});
+    }
+    let mut midi_in_conn = midi_in_conn.unwrap();
+
     // run a clock in another thread. This is equivalent of Audio
     // rho will be passed  in here
     let handle = thread::spawn(move || {
@@ -193,12 +201,19 @@ fn run_gui(
     });
 }
 
-fn get_midi_in_connection() -> Result<MidiInputConnection<()>, Box<dyn Error>> {
+fn get_midi_in_connection(rho: &mut Rho) -> Result<MidiInputConnection<()>, Box<dyn Error>> {
     let mut midi_in = MidiInput::new("midir input")?;
     midi_in.ignore(Ignore::None);
     let in_port = select_port(&midi_in, "input")?;
 
-    let conn_in = midi_in.connect(&in_port, "midir-input", move |_stamp, _message, _| {}, ())?;
+    let conn_in = midi_in.connect(
+        &in_port,
+        "midir-input",
+        move |_stamp, message, _| {
+            rho.note_on();
+        },
+        (),
+    )?;
     Ok(conn_in)
 }
 
