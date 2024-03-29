@@ -93,6 +93,7 @@ fn run_clock(
     let clock_arc = Arc::new(Mutex::new(Clock::new()));
     let sample_rate = 32.0;
     let period_ms = (1000.0 / sample_rate) as u64;
+    let mut sent_notes_for_rows: [Vec<Note>; NUM_ROWS] = Default::default();
 
     // run a clock in another thread.
     let handle = thread::spawn(move || {
@@ -100,11 +101,11 @@ fn run_clock(
             // check to see if there are any messages from the midi in
             match rx_midi_in.try_recv() {
                 Ok(MidiInMessage::NoteOn(note, velocity)) => {
-                    print!("note on {:?}\n", note);
+                    print!("----------clock------------- note on {:?}\n", note);
                     rho.note_on(note.into(), velocity.into());
                 }
                 Ok(MidiInMessage::NoteOff(note)) => {
-                    print!("note off {:?}\n", note);
+                    print!("----------clock------------- note off {:?}\n", note);
                     rho.note_off(note.into());
                 }
                 _ => (),
@@ -122,10 +123,14 @@ fn run_clock(
                 }
             }
 
-            // send some useful info to the gui
-            let _ = tx.send(MessageToGui::NotesForRows {
-                notes: rho.get_notes_for_rows(),
-            });
+            let new_notes_for_rows = rho.get_notes_for_rows();
+            if new_notes_for_rows != sent_notes_for_rows {
+                print!("----------clock------------- sending notes for rows\n");
+                sent_notes_for_rows = new_notes_for_rows.clone();
+                let _ = tx.send(MessageToGui::NotesForRows {
+                    notes: new_notes_for_rows,
+                });
+            }
 
             thread::sleep(Duration::from_millis(period_ms));
         }
@@ -153,23 +158,6 @@ fn run_gui(rx: std::sync::mpsc::Receiver<MessageToGui>, mut grid: GridActivation
             .collect();
 
         egui::CentralPanel::default().show(ctx, |ui| {
-            match rx.try_recv() {
-                Ok(MessageToGui::Tick { high }) => {
-                    print!("TICK {:?}\n", high);
-                }
-                Ok(MessageToGui::NotesForRows { notes }) => {
-                    // assign notes to the note_strings_for_rows
-                    for i in 0..NUM_ROWS {
-                        let mut note_str = String::new();
-                        for note in notes[i].iter() {
-                            note_str.push_str(&format!("{:?} ", note.note_number));
-                        }
-                        note_strings_for_rows[i] = note_str.clone();
-                    }
-                }
-                _ => (),
-            }
-
             ui.heading("Rho Sequencer");
 
             egui::ComboBox::from_label("Midi In Port")
@@ -215,6 +203,32 @@ fn run_gui(rx: std::sync::mpsc::Receiver<MessageToGui>, mut grid: GridActivation
                     }
                 });
             }
+
+            match rx.try_recv() {
+                Ok(MessageToGui::Tick { high }) => {
+                    ctx.request_repaint();
+                }
+                Ok(MessageToGui::NotesForRows { notes }) => {
+                    print!(
+                        "recieving notes for rows {:?} ----------gui------------- \n",
+                        notes
+                            .iter()
+                            .map(|n| n.iter().map(|n| n.note_number).collect::<Vec<_>>())
+                            .collect::<Vec<_>>()
+                    );
+                    // assign notes to the note_strings_for_rows
+                    for i in 0..NUM_ROWS {
+                        let mut note_str = String::new();
+                        for note in notes[i].iter() {
+                            note_str.push_str(&format!("{:?} ", note.note_number));
+                        }
+                        note_strings_for_rows[i] = note_str.clone();
+                        ctx.request_repaint();
+                    }
+                }
+                _ => (),
+            }
+            ctx.request_repaint();
         });
     });
 }
