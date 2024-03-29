@@ -13,11 +13,17 @@ use std::error::Error;
 use std::io::{stdin, stdout, Write};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
+use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
 use midir::{Ignore, MidiIO, MidiInput, MidiInputConnection, MidiOutput};
+
+enum MidiInMessage {
+    NoteOn(u8, u8),
+    NoteOff(u8),
+}
 
 struct Tick {
     high: bool,
@@ -33,11 +39,18 @@ fn main() {
 
     env_logger::init(); // Log to stderr (if you run with `RUST_LOG=debug`).
 
-    // run gui in the main thread, it has a transmission channel
+    // channel from clock to gui
     let (tx, rx) = mpsc::channel();
 
-    let clock_thread_handle = run_clock(tx, running);
+    // channel from midi in to rho
+    let (tx_midi_in, rx_midi_in) = mpsc::channel();
 
+    // set up midi in connection
+    let _conn_in = set_up_midi_in_connection(tx_midi_in);
+
+    let clock_thread_handle = run_clock(tx, running, rho, rx_midi_in);
+
+    // run gui in the main thread, it has a recieve channel
     run_gui(rx, grid);
 
     // when gui stops, we stop the clock thread via this atomic bool
@@ -73,6 +86,8 @@ fn set_up_midi_out(rho: &mut Rho) {
 fn run_clock(
     tx: std::sync::mpsc::Sender<Tick>,
     running: Arc<AtomicBool>,
+    mut rho: Rho,
+    rx_midi_in: std::sync::mpsc::Receiver<MidiInMessage>,
 ) -> thread::JoinHandle<()> {
     let clock_arc = Arc::new(Mutex::new(Clock::new()));
     let sample_rate = 32.0;
@@ -81,6 +96,19 @@ fn run_clock(
     // run a clock in another thread.
     let handle = thread::spawn(move || {
         while running.load(Ordering::SeqCst) {
+            // check to see if there are any messages from the midi in
+            match rx_midi_in.try_recv() {
+                Ok(MidiInMessage::NoteOn(note, velocity)) => {
+                    print!("note on {:?}\n", note);
+                    rho.note_on(note.into(), velocity.into());
+                }
+                Ok(MidiInMessage::NoteOff(note)) => {
+                    print!("note off {:?}\n", note);
+                    rho.note_off(note.into());
+                }
+                _ => (),
+            }
+
             let mut clock = clock_arc.lock().unwrap();
 
             clock.set_rate(2.0, sample_rate);
@@ -171,7 +199,9 @@ fn run_gui(rx: std::sync::mpsc::Receiver<Tick>, mut grid: GridActivations) {
     });
 }
 
-fn get_midi_in_connection(rho: &mut Rho) -> Result<MidiInputConnection<&mut Rho>, Box<dyn Error>> {
+fn set_up_midi_in_connection(
+    tx: Sender<MidiInMessage>,
+) -> Result<MidiInputConnection<Sender<MidiInMessage>>, Box<dyn Error>> {
     let mut midi_in = MidiInput::new("midir input")?;
     midi_in.ignore(Ignore::None);
     let in_port = select_port(&midi_in, "input")?;
@@ -179,12 +209,36 @@ fn get_midi_in_connection(rho: &mut Rho) -> Result<MidiInputConnection<&mut Rho>
     let conn_in = midi_in.connect(
         &in_port,
         "midir-input",
-        move |stamp, message, rho| {
-            on_midi_in(rho, stamp, message);
+        move |stamp, message, tx| {
+            on_midi_in(tx, stamp, message);
         },
-        rho,
+        tx.clone(),
     )?;
     Ok(conn_in)
+}
+
+// when a midi in message is recieved, we call this function
+fn on_midi_in(tx: &mut std::sync::mpsc::Sender<MidiInMessage>, _stamp: u64, message: &[u8]) {
+    //println!("{}: {:?} (len = {})", stamp, message, message.len());
+
+    const MSG_NOTE: u8 = 144;
+    const MSG_NOTE_2: u8 = 145;
+    const MSG_NOTE_OFF: u8 = 129;
+
+    let status = message[0];
+    let note = message[1];
+    let velocity = message[2];
+
+    if status == MSG_NOTE || status == MSG_NOTE_2 {
+        if velocity > 0 {
+            print!("sending note on {:?}\n", note);
+            tx.send(MidiInMessage::NoteOn(note, velocity)).unwrap();
+        } else {
+            tx.send(MidiInMessage::NoteOff(note)).unwrap();
+        }
+    } else if status == MSG_NOTE_OFF {
+        tx.send(MidiInMessage::NoteOff(note)).unwrap();
+    }
 }
 
 fn get_midi_out_connection() -> Result<MidiOutputConnection, Box<dyn Error>> {
@@ -206,28 +260,6 @@ fn get_midi_out_connection() -> Result<MidiOutputConnection, Box<dyn Error>> {
     // let _ = conn_out.send(&[NOTE_ON_MSG, note, VELOCITY]);
 
     Ok(conn_out)
-}
-
-fn on_midi_in(rho: &mut Rho, _stamp: u64, message: &[u8]) {
-    //println!("{}: {:?} (len = {})", stamp, message, message.len());
-
-    const MSG_NOTE: u8 = 144;
-    const MSG_NOTE_2: u8 = 145;
-    const MSG_NOTE_OFF: u8 = 129;
-
-    let status = message[0];
-    let note = message[1];
-    let velocity = message[2];
-
-    if status == MSG_NOTE || status == MSG_NOTE_2 {
-        if velocity > 0 {
-            rho.note_on(note.into(), velocity.into());
-        } else {
-            rho.note_off(note.into());
-        }
-    } else if status == MSG_NOTE_OFF {
-        rho.note_off(note.into());
-    }
 }
 
 fn select_port<T: MidiIO>(midi_io: &T, descr: &str) -> Result<T::Port, Box<dyn Error>> {
