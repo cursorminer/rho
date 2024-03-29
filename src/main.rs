@@ -106,9 +106,17 @@ fn run_gui(rx: std::sync::mpsc::Receiver<Tick>, mut grid: GridActivations) {
         viewport: egui::ViewportBuilder::default().with_inner_size([600.0, 600.0]),
         ..Default::default()
     };
+    let mut selected_in_port = 0;
 
     let _ = eframe::run_simple_native("My egui App", options, move |ctx, _frame| {
         // set up midi list here
+        let midi_in = MidiInput::new("midir input").unwrap();
+        let in_ports = midi_in.ports();
+        let in_port_names: Vec<String> = in_ports
+            .iter()
+            .map(|port| midi_in.port_name(port).unwrap())
+            .collect();
+
         egui::CentralPanel::default().show(ctx, |ui| {
             match rx.try_recv() {
                 Ok(Tick { high }) => {
@@ -117,9 +125,17 @@ fn run_gui(rx: std::sync::mpsc::Receiver<Tick>, mut grid: GridActivations) {
                 _ => (),
             }
 
-            ui.heading("My egui Application");
+            ui.heading("Rho Sequencer");
 
-            ui.add(egui::ComboBox::from_label("Select a MIDI input port").selected_text("None"));
+            egui::ComboBox::from_label("Midi In Port")
+                .selected_text(format!("{:?}", in_port_names[selected_in_port]))
+                .show_ui(ui, |ui| {
+                    let mut i = 0;
+                    for port in in_port_names.iter() {
+                        ui.selectable_value(&mut selected_in_port, i, port);
+                        i += 1;
+                    }
+                });
 
             let mut density: usize = (grid.get_normalized_density() * 127.0) as usize;
             if ui
@@ -130,20 +146,24 @@ fn run_gui(rx: std::sync::mpsc::Receiver<Tick>, mut grid: GridActivations) {
                 grid.set_normalized_density(norm_density);
             }
 
+            if ui.button("New Dist").clicked() {
+                grid.create_new_distribution_given_active_steps();
+            }
+
             for row in 0..NUM_ROWS {
                 ui.horizontal(|ui| {
                     let mut row_length = grid.row_length(row);
-                    for step in 0..row_length {
-                        let mut active = grid.get(row, step);
-                        if toggle_ui(ui, &mut active).changed() {
-                            grid.set(row, step, active);
-                        }
-                    }
                     if ui
                         .add(egui::Slider::new(&mut row_length, 2..=8).text("Row Length"))
                         .changed()
                     {
                         grid.set_row_length(row, row_length);
+                    }
+                    for step in 0..row_length {
+                        let mut active = grid.get(row, step);
+                        if toggle_ui(ui, &mut active).changed() {
+                            grid.set(row, step, active);
+                        }
                     }
                 });
             }
