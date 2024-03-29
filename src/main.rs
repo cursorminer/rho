@@ -119,6 +119,8 @@ fn run_gui(rx: std::sync::mpsc::Receiver<Tick>, mut grid: GridActivations) {
 
             ui.heading("My egui Application");
 
+            ui.add(egui::ComboBox::from_label("Select a MIDI input port").selected_text("None"));
+
             let mut density: usize = (grid.get_normalized_density() * 127.0) as usize;
             if ui
                 .add(egui::Slider::new(&mut density, 0..=127).text("density"))
