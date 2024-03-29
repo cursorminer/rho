@@ -115,7 +115,7 @@ impl GridActivations {
         }
     }
 
-    pub fn get_density(&self) -> f32 {
+    pub fn get_normalized_density(&self) -> f32 {
         self.normalized_density
     }
 
@@ -154,10 +154,15 @@ impl GridActivations {
             .fold(0, |acc, x| if *x { acc + 1 } else { acc })
     }
 
+    pub fn set(&mut self, row: usize, step: usize, on: bool) {
+        let flat_index = grid_index_to_flat_index((row, step), &self.row_lengths);
+        self.change_step_update_thresholds(flat_index, on);
+    }
+
     // switch a step on or off
     //  adjust distribution  whilst respecting the changed step (step at index)
     // if something changed, returns true
-    pub fn change_step_update_thresholds(&mut self, step_index: usize, on: bool) -> bool {
+    fn change_step_update_thresholds(&mut self, step_index: usize, on: bool) -> bool {
         if self.active[step_index] == on {
             return false;
         }
@@ -268,7 +273,13 @@ impl GridActivations {
     }
 
     pub fn get(&self, row: usize, step: usize) -> bool {
+        debug_assert!(row < self.row_lengths.len());
+        debug_assert!(step < self.row_lengths[row]);
         self.active[grid_index_to_flat_index((row, step), &self.row_lengths)]
+    }
+
+    pub fn row_length(&self, row: usize) -> usize {
+        self.row_lengths[row]
     }
 
     // the steps have changed so change the density

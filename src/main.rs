@@ -37,7 +37,7 @@ fn main() {
 
     let clock_thread_handle = run_clock(tx, running);
 
-    run_gui(rx, &mut grid, &mut rho);
+    run_gui(rx, grid);
 
     // when gui stops, we stop the clock thread via this atomic bool
     r.store(false, Ordering::SeqCst);
@@ -99,14 +99,12 @@ fn run_clock(
     handle
 }
 
-fn run_gui(rx: std::sync::mpsc::Receiver<Tick>, grid: &mut GridActivations, rho: &mut Rho) {
+// gui takes ownership of the grid
+fn run_gui(rx: std::sync::mpsc::Receiver<Tick>, mut grid: GridActivations) {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default().with_inner_size([600.0, 600.0]),
         ..Default::default()
     };
-
-    let mut density: i32 = 0;
-    let mut row_length: usize = 0;
 
     let _ = eframe::run_simple_native("My egui App", options, move |ctx, _frame| {
         egui::CentralPanel::default().show(ctx, |ui| {
@@ -119,6 +117,8 @@ fn run_gui(rx: std::sync::mpsc::Receiver<Tick>, grid: &mut GridActivations, rho:
             }
 
             ui.heading("My egui Application");
+
+            let mut density: usize = (grid.get_normalized_density() * 127.0) as usize;
             if ui
                 .add(egui::Slider::new(&mut density, 0..=127).text("density"))
                 .changed()
@@ -127,19 +127,23 @@ fn run_gui(rx: std::sync::mpsc::Receiver<Tick>, grid: &mut GridActivations, rho:
                 grid.set_normalized_density(norm_density);
             }
 
-            if ui
-                .add(egui::Slider::new(&mut row_length, 2..=8).text("Row Length"))
-                .changed()
-            {}
-
-            let row_length = 8;
-
-            // add a horizontal row of checkboxes
-            ui.horizontal(|ui| {
-                for j in 0..row_length {
-                    ui.checkbox(&mut false, "");
-                }
-            });
+            for row in 0..NUM_ROWS {
+                ui.horizontal(|ui| {
+                    let mut row_length = grid.row_length(row);
+                    for step in 0..row_length {
+                        let mut active = grid.get(row, step);
+                        if ui.checkbox(&mut active, "").changed() {
+                            grid.set(row, step, active);
+                        }
+                    }
+                    if ui
+                        .add(egui::Slider::new(&mut row_length, 2..=8).text("Row Length"))
+                        .changed()
+                    {
+                        grid.set_row_length(row, row_length);
+                    }
+                });
+            }
         });
     });
 }
