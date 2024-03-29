@@ -8,7 +8,6 @@ use shitquencer::grid_activations::GridActivations;
 use shitquencer::note_assigner::Note;
 use shitquencer::rho_config::NUM_ROWS;
 use shitquencer::Rho;
-use shitquencer::Rows;
 use std::error::Error;
 use std::io::{stdin, stdout, Write};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -19,125 +18,78 @@ use std::time::Duration;
 
 use midir::{Ignore, MidiIO, MidiInput, MidiInputConnection, MidiOutput};
 
-// the gui sends messages to the clock thread
-// it needs to send: row activations so that the steps are updated
-enum MessageToRho {
-    SetRowActivations { rows: [Vec<bool>; NUM_ROWS] },
-}
-
-// the clock thread sends messages to the gui
-// it needs to send: note assignments, which steps are playing, so the gui can display playing state
-enum MessageToGui {
-    SetNotesForRows { notes: [Vec<usize>; NUM_ROWS] },
-    SetStepPlayCounter { steps: [usize; NUM_ROWS] },
+struct Tick {
+    high: bool,
 }
 
 fn main() {
     let running = Arc::new(AtomicBool::new(true));
     let r = running.clone();
 
-    let rho = Arc::new(Mutex::new(Rho::new()));
-    let grid = Arc::new(Mutex::new(GridActivations::new(4, 4)));
+    let mut rho = Rho::new();
+    let mut grid = GridActivations::new(4, 4);
 
     env_logger::init(); // Log to stderr (if you run with `RUST_LOG=debug`).
 
     // run gui in the main thread, it has a transmission channel
-    let (txFromGuiToRho, rxToRhoFromGui) = mpsc::channel();
-    let (txFromRhoToGui, rxToGuiFromRho) = mpsc::channel();
+    let (tx, rx) = mpsc::channel();
 
-    let clock_thread_handle = run_clock(rxToRhoFromGui, txFromRhoToGui, rho, running);
+    let clock_thread_handle = run_clock(tx, running);
 
-    run_gui(txFromGuiToRho, rxToGuiFromRho, grid);
+    run_gui(rx, &mut grid, &mut rho);
 
     // when gui stops, we stop the clock thread via this atomic bool
     r.store(false, Ordering::SeqCst);
     clock_thread_handle.join().unwrap();
 }
 
+fn set_up_midi_out(rho: &mut Rho) {
+    let midi_out_conn = get_midi_out_connection();
+    let mut midi_out_conn = match midi_out_conn {
+        Ok(conn) => conn,
+        Err(e) => {
+            eprintln!("Error: {}", e);
+            return;
+        }
+    };
+
+    let mut send_midi = |note: Note, on| {
+        const NOTE_ON_MSG: u8 = 0x90;
+        const NOTE_OFF_MSG: u8 = 0x80;
+        const VELOCITY: u8 = 0x64;
+        // We're ignoring errors in here
+        if on {
+            print!("starting note {}\n", note.note_number as u8);
+            let _ = midi_out_conn.send(&[NOTE_ON_MSG, note.note_number as u8, VELOCITY]);
+        } else {
+            print!("stopin note {}\n", note.note_number as u8);
+            let _ = midi_out_conn.send(&[NOTE_OFF_MSG, note.note_number as u8, VELOCITY]);
+        }
+    };
+}
+
 fn run_clock(
-    rx: std::sync::mpsc::Receiver<MessageToRho>,
-    tx: std::sync::mpsc::Sender<MessageToGui>,
-    rho: Arc<Mutex<Rho>>,
+    tx: std::sync::mpsc::Sender<Tick>,
     running: Arc<AtomicBool>,
 ) -> thread::JoinHandle<()> {
     let clock_arc = Arc::new(Mutex::new(Clock::new()));
     let sample_rate = 32.0;
     let period_ms = (1000.0 / sample_rate) as u64;
 
-    let midi_out_conn = get_midi_out_connection();
-    if let Err(err) = midi_out_conn {
-        println!("Error: {}", err);
-        return thread::spawn(|| {});
-    }
-    let mut midi_out_conn = midi_out_conn.unwrap();
-
-    let midi_in_conn = get_midi_in_connection(rho.lock().unwrap());
-
-    if let Err(err) = midi_in_conn {
-        println!("Error: {}", err);
-        return thread::spawn(|| {});
-    }
-    let mut midi_in_conn = midi_in_conn.unwrap();
-
-    // run a clock in another thread. This is equivalent of Audio
-    // rho will be passed  in here
+    // run a clock in another thread.
     let handle = thread::spawn(move || {
-        let mut send_midi = |note: Note, on| {
-            const NOTE_ON_MSG: u8 = 0x90;
-            const NOTE_OFF_MSG: u8 = 0x80;
-            const VELOCITY: u8 = 0x64;
-            // We're ignoring errors in here
-            if on {
-                print!("starting note {}\n", note.note_number as u8);
-                let _ = midi_out_conn.send(&[NOTE_ON_MSG, note.note_number as u8, VELOCITY]);
-            } else {
-                print!("stopin note {}\n", note.note_number as u8);
-                let _ = midi_out_conn.send(&[NOTE_OFF_MSG, note.note_number as u8, VELOCITY]);
-            }
-        };
-
-        // fake note on and trigger setting
-
-        let mut rho = rho.lock().unwrap();
-        rho.note_on(60, 100);
-        rho.note_on(69, 100);
-
         while running.load(Ordering::SeqCst) {
             let mut clock = clock_arc.lock().unwrap();
-
-            // process messages from GUI
-            match rx.try_recv() {
-                Ok(MessageToRho::SetRowActivations { rows }) => {
-                    print!("recieved rows\n");
-                }
-                _ => (),
-            }
 
             clock.set_rate(2.0, sample_rate);
             let clock_out = clock.tick();
             if let Some(c) = clock_out {
                 if c {
-                    // clock high
-                    // process messages from UI
-
-                    // this doesn't work because the above will keep processing messages till the end...?
-                    let starting_notes = rho.on_clock_high();
-                    // play midi notes here
-                    for note in starting_notes {
-                        send_midi(note, true);
-                    }
+                    tx.send(Tick { high: true }).unwrap();
                 } else {
-                    // clock low
-                    let finishing_notes = rho.on_clock_low();
-                    // stop midi notes here
-                    for note in finishing_notes {
-                        send_midi(note, false);
-                    }
+                    tx.send(Tick { high: false }).unwrap();
                 }
             }
-            // send messages back to GUI if needed
-            // let rows = rho.get_cloned_row_loopers();
-            // let _ = tx.send(MessageToGui::SetRows { row_states: rows });
 
             thread::sleep(Duration::from_millis(period_ms));
         }
@@ -146,11 +98,7 @@ fn run_clock(
     handle
 }
 
-fn run_gui(
-    tx: std::sync::mpsc::Sender<MessageToRho>,
-    rx: std::sync::mpsc::Receiver<MessageToGui>,
-    grid: Arc<Mutex<GridActivations>>,
-) {
+fn run_gui(rx: std::sync::mpsc::Receiver<Tick>, grid: &mut GridActivations, rho: &mut Rho) {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default().with_inner_size([600.0, 600.0]),
         ..Default::default()
@@ -161,12 +109,10 @@ fn run_gui(
 
     let _ = eframe::run_simple_native("My egui App", options, move |ctx, _frame| {
         egui::CentralPanel::default().show(ctx, |ui| {
-            let mut grid = grid.lock().unwrap();
-
             // process messages from Rho
             match rx.try_recv() {
-                Ok(MessageToGui::SetNotesForRows { notes }) => {
-                    print!("recieved notes {:?}\n", notes);
+                Ok(Tick { high }) => {
+                    print!("TICK {:?}\n", high);
                 }
                 _ => (),
             }
@@ -193,15 +139,11 @@ fn run_gui(
                     ui.checkbox(&mut false, "");
                 }
             });
-
-            let _ = tx.send(MessageToRho::SetRowActivations {
-                rows: grid.get_row_activations(),
-            });
         });
     });
 }
 
-fn get_midi_in_connection(rho: &mut Rho) -> Result<MidiInputConnection<()>, Box<dyn Error>> {
+fn get_midi_in_connection(rho: &mut Rho) -> Result<MidiInputConnection<&mut Rho>, Box<dyn Error>> {
     let mut midi_in = MidiInput::new("midir input")?;
     midi_in.ignore(Ignore::None);
     let in_port = select_port(&midi_in, "input")?;
@@ -209,10 +151,10 @@ fn get_midi_in_connection(rho: &mut Rho) -> Result<MidiInputConnection<()>, Box<
     let conn_in = midi_in.connect(
         &in_port,
         "midir-input",
-        move |_stamp, message, _| {
-            rho.note_on();
+        move |stamp, message, rho| {
+            on_midi_in(rho, stamp, message);
         },
-        (),
+        rho,
     )?;
     Ok(conn_in)
 }
