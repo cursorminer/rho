@@ -5,6 +5,26 @@ use crate::rho_config::NUM_ROWS;
 use std::cmp::PartialOrd;
 use std::fmt;
 
+pub fn to_string(note: &Note) -> String {
+    let note_class = note.note_number % 12;
+    let note_name = match note_class {
+        0 => "C",
+        1 => "C#",
+        2 => "D",
+        3 => "D#",
+        4 => "E",
+        5 => "F",
+        6 => "F#",
+        7 => "G",
+        8 => "G#",
+        9 => "A",
+        10 => "A#",
+        11 => "B",
+        _ => "Unknown",
+    };
+    format!("{}{}", note_name, note.note_number / 12)
+}
+
 // a midi note
 #[derive(Debug, Clone, Copy)]
 pub struct Note {
@@ -26,7 +46,7 @@ impl PartialOrd for Note {
 
 impl fmt::Display for Note {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Note {}", self.note_number)
+        write!(f, "{}", to_string(self))
     }
 }
 
@@ -382,15 +402,26 @@ impl NoteAssigner {
         }
     }
 
+    // return an array of the notes assigned to each row
+    const EMPTY_VEC: Vec<Note> = Vec::new();
+    pub fn get_notes_for_rows(&self) -> [Vec<Note>; NUM_ROWS] {
+        let mut notes: [Vec<Note>; NUM_ROWS] = Default::default();
+        for (i, row) in self.rows.iter().enumerate() {
+            notes[i] = row.notes.data.clone();
+        }
+        notes
+    }
+
     pub fn print_row_notes(&self) {
         print!("[");
         let mut i = 0;
         for row in &self.rows {
-            print!("Row {}:", i);
+            print!("[{} ", i);
             for note in &row.notes.data {
-                print!("{},", note);
+                print!("{}, ", note);
             }
             i += 1;
+            print!("] ");
         }
         print!("]\n");
     }

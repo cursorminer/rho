@@ -25,8 +25,9 @@ enum MidiInMessage {
     NoteOff(u8),
 }
 
-struct Tick {
-    high: bool,
+enum MessageToGui {
+    NotesForRows { notes: [Vec<Note>; NUM_ROWS] },
+    Tick { high: bool },
 }
 
 fn main() {
@@ -68,7 +69,7 @@ fn set_up_midi_out(rho: &mut Rho) {
         }
     };
 
-    let mut send_midi = |note: Note, on| {
+    let mut _send_midi = |note: Note, on| {
         const NOTE_ON_MSG: u8 = 0x90;
         const NOTE_OFF_MSG: u8 = 0x80;
         const VELOCITY: u8 = 0x64;
@@ -84,7 +85,7 @@ fn set_up_midi_out(rho: &mut Rho) {
 }
 
 fn run_clock(
-    tx: std::sync::mpsc::Sender<Tick>,
+    tx: std::sync::mpsc::Sender<MessageToGui>,
     running: Arc<AtomicBool>,
     mut rho: Rho,
     rx_midi_in: std::sync::mpsc::Receiver<MidiInMessage>,
@@ -115,11 +116,16 @@ fn run_clock(
             let clock_out = clock.tick();
             if let Some(c) = clock_out {
                 if c {
-                    tx.send(Tick { high: true }).unwrap();
+                    tx.send(MessageToGui::Tick { high: true }).unwrap();
                 } else {
-                    tx.send(Tick { high: false }).unwrap();
+                    tx.send(MessageToGui::Tick { high: false }).unwrap();
                 }
             }
+
+            // send some useful info to the gui
+            let _ = tx.send(MessageToGui::NotesForRows {
+                notes: rho.get_notes_for_rows(),
+            });
 
             thread::sleep(Duration::from_millis(period_ms));
         }
@@ -129,15 +135,16 @@ fn run_clock(
 }
 
 // gui takes ownership of the grid
-fn run_gui(rx: std::sync::mpsc::Receiver<Tick>, mut grid: GridActivations) {
+fn run_gui(rx: std::sync::mpsc::Receiver<MessageToGui>, mut grid: GridActivations) {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default().with_inner_size([600.0, 600.0]),
         ..Default::default()
     };
     let mut selected_in_port = 0;
+    let mut note_strings_for_rows = vec!["C#".to_string(); NUM_ROWS];
 
     let _ = eframe::run_simple_native("My egui App", options, move |ctx, _frame| {
-        // set up midi list here
+        // set up midi list here TODO this happens every frame! Might be slow
         let midi_in = MidiInput::new("midir input").unwrap();
         let in_ports = midi_in.ports();
         let in_port_names: Vec<String> = in_ports
@@ -147,8 +154,18 @@ fn run_gui(rx: std::sync::mpsc::Receiver<Tick>, mut grid: GridActivations) {
 
         egui::CentralPanel::default().show(ctx, |ui| {
             match rx.try_recv() {
-                Ok(Tick { high }) => {
+                Ok(MessageToGui::Tick { high }) => {
                     print!("TICK {:?}\n", high);
+                }
+                Ok(MessageToGui::NotesForRows { notes }) => {
+                    // assign notes to the note_strings_for_rows
+                    for i in 0..NUM_ROWS {
+                        let mut note_str = String::new();
+                        for note in notes[i].iter() {
+                            note_str.push_str(&format!("{:?} ", note.note_number));
+                        }
+                        note_strings_for_rows[i] = note_str.clone();
+                    }
                 }
                 _ => (),
             }
@@ -180,6 +197,9 @@ fn run_gui(rx: std::sync::mpsc::Receiver<Tick>, mut grid: GridActivations) {
 
             for row in 0..NUM_ROWS {
                 ui.horizontal(|ui| {
+                    // a text display of the note for this row
+                    ui.label(&note_strings_for_rows[row]);
+
                     let mut row_length = grid.row_length(row);
                     if ui
                         .add(egui::Slider::new(&mut row_length, 2..=8).text("Row Length"))

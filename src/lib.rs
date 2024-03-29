@@ -43,6 +43,10 @@ impl Rho {
         self.note_assigner.print_row_notes();
     }
 
+    pub fn get_notes_for_rows(&self) -> [Vec<Note>; NUM_ROWS] {
+        self.note_assigner.get_notes_for_rows()
+    }
+
     pub fn on_clock_high(&mut self) -> Vec<note_assigner::Note> {
         // get the rows that are triggered by ticking the row loopers
         let triggered_rows = self.tick_rows();
