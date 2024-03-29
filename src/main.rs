@@ -26,6 +26,7 @@ fn main() {
     let running = Arc::new(AtomicBool::new(true));
     let r = running.clone();
 
+    // make into ref counted pointer
     let mut rho = Rho::new();
     let mut grid = GridActivations::new(4, 4);
 
