@@ -1,14 +1,14 @@
 // import my lib here
-extern crate shitquencer;
+extern crate rho;
 
 use eframe::egui;
 use midir::MidiOutputConnection;
-use shitquencer::clock::Clock;
-use shitquencer::grid_activations::GridActivations;
-use shitquencer::note_assigner::Note;
-use shitquencer::rho_config::NUM_ROWS;
-use shitquencer::step_switch::*;
-use shitquencer::Rho;
+use rho::clock::Clock;
+use rho::grid_activations::GridActivations;
+use rho::note_assigner::Note;
+use rho::rho_config::NUM_ROWS;
+use rho::step_switch::*;
+use rho::Rho;
 use std::error::Error;
 use std::io::{stdin, stdout, Write};
 use std::sync::atomic::{AtomicBool, Ordering};

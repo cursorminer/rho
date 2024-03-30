@@ -7,16 +7,16 @@
         {
             "type": "lldb",
             "request": "launch",
-            "name": "Debug unit tests in library 'shitquencer'",
+            "name": "Debug unit tests in library 'rho'",
             "cargo": {
                 "args": [
                     "test",
                     "--no-run",
                     "--lib",
-                    "--package=shitquencer"
+                    "--package=rho"
                 ],
                 "filter": {
-                    "name": "shitquencer",
+                    "name": "rho",
                     "kind": "lib"
                 }
             },
@@ -30,11 +30,11 @@
             "cargo": {
                 "args": [
                     "build",
-                    "--bin=shitquencer",
-                    "--package=shitquencer"
+                    "--bin=rho",
+                    "--package=rho"
                 ],
                 "filter": {
-                    "name": "shitquencer",
+                    "name": "rho",
                     "kind": "bin"
                 }
             },
