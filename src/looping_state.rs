@@ -1,6 +1,6 @@
 #[derive(Debug, Clone)]
 pub struct LoopingSequence<T> {
-    pub data: Vec<T>,
+    pub data: Vec<T>, // TODO make this private and have smarter setters
     counter: usize,
 }
 
@@ -41,14 +41,14 @@ where
     type Item = T;
 
     fn next(&mut self) -> Option<Self::Item> {
+        if self.counter >= self.data.len() {
+            self.counter = 0;
+        }
         if self.data.is_empty() {
             None
         } else {
             let value = self.data[self.counter];
             self.counter += 1;
-            if self.counter >= self.data.len() {
-                self.counter = 0;
-            }
             Some(value)
         }
     }

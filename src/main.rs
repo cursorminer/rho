@@ -20,8 +20,8 @@ use std::time::Duration;
 
 use midir::{Ignore, MidiIO, MidiInput, MidiInputConnection, MidiOutput};
 
-const NOTE_ON_MSG: u8 = 0x90;
-const NOTE_OFF_MSG: u8 = 0x80;
+const NOTE_ON_MSG: u8 = 0x91;
+const NOTE_OFF_MSG: u8 = 0x81;
 
 // when notes are recieved, we send them to the rho sequencer via a channel
 enum MidiInMessage {
@@ -140,10 +140,6 @@ fn run_clock(
 
             match rx_gui.try_recv() {
                 Ok(MessageGuiToRho::RowActivations { row_activations }) => {
-                    print!(
-                        "----------clock------------- got row activations {:?}\n",
-                        row_activations
-                    );
                     rho.set_row_activations(row_activations);
                 }
                 Ok(MessageGuiToRho::HoldNotesEnabled { enabled }) => {
@@ -153,17 +149,13 @@ fn run_clock(
             }
 
             let mut clock = clock_arc.lock().unwrap();
-            clock.set_rate(2.0, sample_rate);
+            clock.set_rate(8.0, sample_rate);
 
             let clock_out = clock.tick();
             if let Some(c) = clock_out {
                 if c {
                     // now get the notes to play
                     let notes_to_play = rho.on_clock_high();
-                    print!(
-                        "----------clock------------- notes to play: {:?}\n",
-                        notes_to_play
-                    );
 
                     for note in notes_to_play {
                         print!("----------clock------------- OUTPUT note on {}\n", note);
@@ -189,7 +181,6 @@ fn run_clock(
 
             let new_notes_for_rows = rho.get_notes_for_rows();
             if new_notes_for_rows != sent_notes_for_rows {
-                print!("----------clock------------- sending notes for rows\n");
                 sent_notes_for_rows = new_notes_for_rows.clone();
                 let _ = tx.send(MessageToGui::NotesForRows {
                     notes: new_notes_for_rows,
@@ -312,7 +303,7 @@ fn run_gui(
                 });
             }
 
-            ctx.request_repaint();
+            ctx.request_repaint_after(Duration::from_millis(100));
         });
     });
 }
@@ -350,7 +341,7 @@ fn on_midi_in(tx: &mut std::sync::mpsc::Sender<MidiInMessage>, _stamp: u64, mess
     if status == MSG_NOTE || status == MSG_NOTE_2 {
         if velocity > 0 {
             print!("sending note on {:?}\n", note);
-            tx.send(MidiInMessage::NoteOn(note, velocity)).unwrap();
+            tx.send(MidiInMessage::NoteOn(note, velocity)).unwrap(); // TODO this can panic!
         } else {
             tx.send(MidiInMessage::NoteOff(note)).unwrap();
         }
