@@ -43,6 +43,18 @@ enum MessageGuiToRho {
     HoldNotesEnabled {
         enabled: bool,
     },
+    SetMidiIn {
+        port: usize,
+    },
+    SetMidiOut {
+        port: usize,
+    },
+    SetMidiChannelIn {
+        channel: usize,
+    },
+    SetMidiChannelOut {
+        channel: usize,
+    },
 }
 
 fn main() {
@@ -234,6 +246,11 @@ fn run_gui(
                         i += 1;
                     }
                 });
+
+            // if the midi port selection was changed, send a message to the clock thread
+            let _ = tx.send(MessageGuiToRho::SetMidiIn {
+                port: selected_in_port,
+            });
 
             let mut density: usize = (grid.get_normalized_density() * 127.0) as usize;
             if ui
