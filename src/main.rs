@@ -20,14 +20,29 @@ use std::time::Duration;
 
 use midir::{Ignore, MidiIO, MidiInput, MidiInputConnection, MidiOutput};
 
+const NOTE_ON_MSG: u8 = 0x90;
+const NOTE_OFF_MSG: u8 = 0x80;
+
+// when notes are recieved, we send them to the rho sequencer via a channel
 enum MidiInMessage {
     NoteOn(u8, u8),
     NoteOff(u8),
 }
 
+// messages from the clock to the gui, to display the state of the sequencer
 enum MessageToGui {
     NotesForRows { notes: [Vec<Note>; NUM_ROWS] },
     Tick { high: bool },
+}
+
+// messages from the gui to the rho sequencer (clock thread). send when the row activations change
+enum MessageGuiToRho {
+    RowActivations {
+        row_activations: [Vec<bool>; NUM_ROWS],
+    },
+    HoldNotesEnabled {
+        enabled: bool,
+    },
 }
 
 fn main() {
@@ -46,13 +61,16 @@ fn main() {
     // channel from midi in to rho
     let (tx_midi_in, rx_midi_in) = mpsc::channel();
 
+    // channel from gui to rho
+    let (tx_gui, rx_gui) = mpsc::channel();
+
     // set up midi in connection
     let _conn_in = set_up_midi_in_connection(tx_midi_in);
 
-    let clock_thread_handle = run_clock(tx, running, rho, rx_midi_in);
+    let clock_thread_handle = run_clock(tx, running, rho, rx_midi_in, rx_gui);
 
     // run gui in the main thread, it has a recieve channel
-    run_gui(rx, grid);
+    run_gui(rx, tx_gui, grid);
 
     // when gui stops, we stop the clock thread via this atomic bool
     r.store(false, Ordering::SeqCst);
@@ -89,6 +107,7 @@ fn run_clock(
     running: Arc<AtomicBool>,
     mut rho: Rho,
     rx_midi_in: std::sync::mpsc::Receiver<MidiInMessage>,
+    rx_gui: std::sync::mpsc::Receiver<MessageGuiToRho>,
 ) -> thread::JoinHandle<()> {
     let clock_arc = Arc::new(Mutex::new(Clock::new()));
     let sample_rate = 32.0;
@@ -97,28 +116,73 @@ fn run_clock(
 
     // run a clock in another thread.
     let handle = thread::spawn(move || {
+        // open a midi out connection
+        let midi_out_conn = get_midi_out_connection();
+        let mut midi_out_conn = match midi_out_conn {
+            Ok(conn) => conn,
+            Err(e) => {
+                eprintln!("Error: {}", e);
+                return;
+            }
+        };
+
         while running.load(Ordering::SeqCst) {
             // check to see if there are any messages from the midi in
             match rx_midi_in.try_recv() {
                 Ok(MidiInMessage::NoteOn(note, velocity)) => {
-                    print!("----------clock------------- note on {:?}\n", note);
                     rho.note_on(note.into(), velocity.into());
                 }
                 Ok(MidiInMessage::NoteOff(note)) => {
-                    print!("----------clock------------- note off {:?}\n", note);
                     rho.note_off(note.into());
                 }
                 _ => (),
             }
 
-            let mut clock = clock_arc.lock().unwrap();
+            match rx_gui.try_recv() {
+                Ok(MessageGuiToRho::RowActivations { row_activations }) => {
+                    print!(
+                        "----------clock------------- got row activations {:?}\n",
+                        row_activations
+                    );
+                    rho.set_row_activations(row_activations);
+                }
+                Ok(MessageGuiToRho::HoldNotesEnabled { enabled }) => {
+                    rho.set_hold_notes_enabled(enabled);
+                }
+                _ => (),
+            }
 
+            let mut clock = clock_arc.lock().unwrap();
             clock.set_rate(2.0, sample_rate);
+
             let clock_out = clock.tick();
             if let Some(c) = clock_out {
                 if c {
+                    // now get the notes to play
+                    let notes_to_play = rho.on_clock_high();
+                    print!(
+                        "----------clock------------- notes to play: {:?}\n",
+                        notes_to_play
+                    );
+
+                    for note in notes_to_play {
+                        print!("----------clock------------- OUTPUT note on {}\n", note);
+                        // send midi note on
+                        midi_out_conn
+                            .send(&[NOTE_ON_MSG, note.note_number as u8, 0x64])
+                            .unwrap();
+                    }
                     tx.send(MessageToGui::Tick { high: true }).unwrap();
                 } else {
+                    // send midi off for all notes
+                    let notes_to_stop = rho.on_clock_low();
+                    for note in notes_to_stop {
+                        print!("----------clock------------- OUTPUT note off {}\n", note);
+                        // send midi note off
+                        midi_out_conn
+                            .send(&[NOTE_OFF_MSG, note.note_number as u8, 0x64])
+                            .unwrap();
+                    }
                     tx.send(MessageToGui::Tick { high: false }).unwrap();
                 }
             }
@@ -140,13 +204,20 @@ fn run_clock(
 }
 
 // gui takes ownership of the grid
-fn run_gui(rx: std::sync::mpsc::Receiver<MessageToGui>, mut grid: GridActivations) {
+fn run_gui(
+    rx: std::sync::mpsc::Receiver<MessageToGui>,
+    tx: std::sync::mpsc::Sender<MessageGuiToRho>,
+    mut grid: GridActivations,
+) {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default().with_inner_size([600.0, 600.0]),
         ..Default::default()
     };
+
+    // these vars are persistent across frames
     let mut selected_in_port = 0;
     let mut note_strings_for_rows = vec!["C#".to_string(); NUM_ROWS];
+    let mut hold_checkbox_state = false;
 
     let _ = eframe::run_simple_native("My egui App", options, move |ctx, _frame| {
         // set up midi list here TODO this happens every frame! Might be slow
@@ -156,6 +227,9 @@ fn run_gui(rx: std::sync::mpsc::Receiver<MessageToGui>, mut grid: GridActivation
             .iter()
             .map(|port| midi_in.port_name(port).unwrap())
             .collect();
+
+        // these vars are reset each frame
+        let mut do_send_row_activations = false;
 
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.heading("Rho Sequencer");
@@ -177,13 +251,21 @@ fn run_gui(rx: std::sync::mpsc::Receiver<MessageToGui>, mut grid: GridActivation
             {
                 let norm_density = density as f32 / 127.0;
                 grid.set_normalized_density(norm_density);
+                do_send_row_activations = true;
             }
 
             if ui.button("New Dist").clicked() {
                 grid.create_new_distribution_given_active_steps();
+                do_send_row_activations = true;
             }
 
-            for row in 0..NUM_ROWS {
+            if ui.checkbox(&mut hold_checkbox_state, "Hold").changed() {
+                let _ = tx.send(MessageGuiToRho::HoldNotesEnabled {
+                    enabled: hold_checkbox_state,
+                });
+            }
+
+            for row in (0..NUM_ROWS).rev() {
                 ui.horizontal(|ui| {
                     // a text display of the note for this row
                     ui.label(&note_strings_for_rows[row]);
@@ -194,11 +276,13 @@ fn run_gui(rx: std::sync::mpsc::Receiver<MessageToGui>, mut grid: GridActivation
                         .changed()
                     {
                         grid.set_row_length(row, row_length);
+                        do_send_row_activations = true;
                     }
                     for step in 0..row_length {
                         let mut active = grid.get(row, step);
                         if toggle_ui(ui, &mut active).changed() {
                             grid.set(row, step, active);
+                            do_send_row_activations = true;
                         }
                     }
                 });
@@ -209,18 +293,11 @@ fn run_gui(rx: std::sync::mpsc::Receiver<MessageToGui>, mut grid: GridActivation
                     ctx.request_repaint();
                 }
                 Ok(MessageToGui::NotesForRows { notes }) => {
-                    print!(
-                        "recieving notes for rows {:?} ----------gui------------- \n",
-                        notes
-                            .iter()
-                            .map(|n| n.iter().map(|n| n.note_number).collect::<Vec<_>>())
-                            .collect::<Vec<_>>()
-                    );
                     // assign notes to the note_strings_for_rows
                     for i in 0..NUM_ROWS {
                         let mut note_str = String::new();
                         for note in notes[i].iter() {
-                            note_str.push_str(&format!("{:?} ", note.note_number));
+                            note_str.push_str(&format!("{} ", note));
                         }
                         note_strings_for_rows[i] = note_str.clone();
                         ctx.request_repaint();
@@ -228,6 +305,13 @@ fn run_gui(rx: std::sync::mpsc::Receiver<MessageToGui>, mut grid: GridActivation
                 }
                 _ => (),
             }
+
+            if do_send_row_activations {
+                let _ = tx.send(MessageGuiToRho::RowActivations {
+                    row_activations: grid.get_row_activations(),
+                });
+            }
+
             ctx.request_repaint();
         });
     });
@@ -309,5 +393,8 @@ fn select_port<T: MidiIO>(midi_io: &T, descr: &str) -> Result<T::Port, Box<dyn E
     let port = midi_ports
         .get(input.trim().parse::<usize>()?)
         .ok_or("Invalid port number")?;
+
+    // to force set port
+    //let port = midi_ports.get(1).ok_or("Invalid port number")?;
     Ok(port.clone())
 }

@@ -271,6 +271,10 @@ impl NoteAssigner {
         self.update_note_to_row_mapping();
     }
 
+    pub fn set_hold_notes_enabled(&mut self, enabled: bool) {
+        self.hold_notes_enabled = enabled;
+    }
+
     pub fn all_active_notes_empty(&self) -> bool {
         self.active_notes.iter().all(Option::is_none)
     }
@@ -377,6 +381,10 @@ impl NoteAssigner {
         //self.wrap_note_rotation_counters();
     }
 
+    pub fn set_fill_octaves_enabled(&mut self, enabled: bool) {
+        self.auto_octave_enabled = enabled;
+    }
+
     // this fills any notes that don't have notes with octaves above the ones that do
     fn fill_remaining_rows_with_octaves(&mut self) {
         // loop over all row indices after first free index and add octaves
@@ -393,6 +401,12 @@ impl NoteAssigner {
 
     fn get_octave_shifted_note_for_index(&self, row_index: usize) -> Note {
         // TODO this mod might be wrong or weird if rows are deactivated
+        if self.active_notes.is_empty() {
+            return Note {
+                note_number: 0,
+                velocity: 0,
+            };
+        }
         let note_to_repeat = self.active_notes[row_index % self.active_notes.len()];
         let octave = row_index / self.active_notes.len();
 
