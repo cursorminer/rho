@@ -20,8 +20,8 @@ use std::time::Duration;
 
 use midir::{Ignore, MidiIO, MidiInput, MidiInputConnection, MidiOutput};
 
-const NOTE_ON_MSG: u8 = 0x91;
-const NOTE_OFF_MSG: u8 = 0x81;
+const NOTE_ON_MSG: u8 = 0x90;
+const NOTE_OFF_MSG: u8 = 0x80;
 
 // when notes are recieved, we send them to the rho sequencer via a channel
 enum MidiInMessage {
@@ -50,10 +50,10 @@ enum MessageGuiToRho {
         port: usize,
     },
     SetMidiChannelIn {
-        channel: usize,
+        channel: u8,
     },
     SetMidiChannelOut {
-        channel: usize,
+        channel: u8,
     },
 }
 
@@ -125,6 +125,7 @@ fn run_clock(
     let sample_rate = 32.0;
     let period_ms = (1000.0 / sample_rate) as u64;
     let mut sent_notes_for_rows: [Vec<Note>; NUM_ROWS] = Default::default();
+    let mut midi_out_channel: u8 = 0;
 
     // run a clock in another thread.
     let handle = thread::spawn(move || {
@@ -157,6 +158,9 @@ fn run_clock(
                 Ok(MessageGuiToRho::HoldNotesEnabled { enabled }) => {
                     rho.set_hold_notes_enabled(enabled);
                 }
+                Ok(MessageGuiToRho::SetMidiChannelOut { channel }) => {
+                    midi_out_channel = channel;
+                }
                 _ => (),
             }
 
@@ -173,7 +177,7 @@ fn run_clock(
                         print!("----------clock------------- OUTPUT note on {}\n", note);
                         // send midi note on
                         midi_out_conn
-                            .send(&[NOTE_ON_MSG, note.note_number as u8, 0x64])
+                            .send(&[NOTE_ON_MSG + midi_out_channel, note.note_number as u8, 0x64])
                             .unwrap();
                     }
                     tx.send(MessageToGui::Tick { high: true }).unwrap();
@@ -184,7 +188,11 @@ fn run_clock(
                         print!("----------clock------------- OUTPUT note off {}\n", note);
                         // send midi note off
                         midi_out_conn
-                            .send(&[NOTE_OFF_MSG, note.note_number as u8, 0x64])
+                            .send(&[
+                                NOTE_OFF_MSG + midi_out_channel,
+                                note.note_number as u8,
+                                0x64,
+                            ])
                             .unwrap();
                     }
                     tx.send(MessageToGui::Tick { high: false }).unwrap();
@@ -221,6 +229,7 @@ fn run_gui(
     let mut selected_in_port = 0;
     let mut note_strings_for_rows = vec!["C#".to_string(); NUM_ROWS];
     let mut hold_checkbox_state = false;
+    let mut midi_out_channel: u8 = 0;
 
     let _ = eframe::run_simple_native("My egui App", options, move |ctx, _frame| {
         // set up midi list here TODO this happens every frame! Might be slow
@@ -237,19 +246,30 @@ fn run_gui(
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.heading("Rho Sequencer");
 
-            egui::ComboBox::from_label("Midi In Port")
-                .selected_text(format!("{:?}", in_port_names[selected_in_port]))
-                .show_ui(ui, |ui| {
-                    let mut i = 0;
-                    for port in in_port_names.iter() {
-                        ui.selectable_value(&mut selected_in_port, i, port);
-                        i += 1;
-                    }
+            ui.horizontal(|ui| {
+                egui::ComboBox::from_label("Midi In Port")
+                    .selected_text(format!("{:?}", in_port_names[selected_in_port]))
+                    .show_ui(ui, |ui| {
+                        let mut i = 0;
+                        for port in in_port_names.iter() {
+                            ui.selectable_value(&mut selected_in_port, i, port);
+                            i += 1;
+                        }
+                    });
+
+                // if the midi port selection was changed, send a message to the clock thread
+                let _ = tx.send(MessageGuiToRho::SetMidiIn {
+                    port: selected_in_port,
                 });
 
-            // if the midi port selection was changed, send a message to the clock thread
-            let _ = tx.send(MessageGuiToRho::SetMidiIn {
-                port: selected_in_port,
+                if ui
+                    .add(egui::DragValue::new(&mut midi_out_channel).clamp_range(0..=15))
+                    .changed()
+                {
+                    let _ = tx.send(MessageGuiToRho::SetMidiChannelOut {
+                        channel: midi_out_channel,
+                    });
+                }
             });
 
             let mut density: usize = (grid.get_normalized_density() * 127.0) as usize;
