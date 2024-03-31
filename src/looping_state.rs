@@ -1,6 +1,6 @@
 #[derive(Debug, Clone)]
 pub struct LoopingSequence<T> {
-    pub data: Vec<T>, // TODO make this private and have smarter setters
+    data: Vec<T>, // TODO make this private and have smarter setters
     counter: usize,
 }
 
@@ -16,11 +16,23 @@ where
         }
     }
 
+    pub fn clear(&mut self) {
+        self.counter = 0;
+        self.data.clear();
+    }
+
     pub fn reset(&mut self) {
         self.counter = 0;
     }
+    pub fn append(&mut self, value: T) {
+        self.data.push(value);
+    }
 
     pub fn resize(&mut self, new_length: usize, value: T) {
+        if new_length == 0 {
+            self.clear();
+            return;
+        }
         // adjust counter to be within bounds
         if self.counter >= new_length {
             self.counter = self.counter % new_length;
@@ -30,6 +42,10 @@ where
 
     pub fn set_data(&mut self, data: Vec<T>) {
         self.data = data.clone();
+    }
+
+    pub fn clone_data(&self) -> Vec<T> {
+        self.data.clone()
     }
 }
 
@@ -89,6 +105,10 @@ mod tests {
         assert_eq!(s.next(), Some(30));
         assert_eq!(s.next(), Some(10));
         s.reset();
+        assert_eq!(s.next(), Some(10));
+        assert_eq!(s.next(), Some(20));
+        s.resize(1, 0);
+        assert_eq!(s.next(), Some(10));
         assert_eq!(s.next(), Some(10));
     }
 }
