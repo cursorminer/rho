@@ -3,6 +3,7 @@
 extern crate rand;
 
 pub mod grid_activations;
+pub mod messages;
 pub mod note_assigner;
 pub mod rho_config;
 pub mod step_switch;
