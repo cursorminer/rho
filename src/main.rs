@@ -277,7 +277,8 @@ fn run_gui(
             for row in (0..NUM_ROWS).rev() {
                 ui.horizontal(|ui| {
                     // a text display of the note for this row
-                    ui.label(&note_strings_for_rows[row]);
+
+                    ui.add_sized([100.0, 50.0], egui::Label::new(&note_strings_for_rows[row]));
 
                     let mut row_length = grid.row_length(row);
                     if ui
