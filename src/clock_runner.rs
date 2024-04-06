@@ -10,7 +10,7 @@ use midir::MidiOutputConnection;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 pub fn run_clock(
     tx: std::sync::mpsc::Sender<MessageToGui>,
@@ -32,9 +32,16 @@ pub fn run_clock(
 
     let mut is_playing = false;
 
+    let mut tick_time = Instant::now();
+
     // run a clock in another thread.
     let handle = thread::spawn(move || {
         while running.load(Ordering::SeqCst) {
+            // wait until the next clock tick
+            while Instant::now() < tick_time {
+                thread::yield_now();
+            }
+
             // check to see if there are any messages from the midi in
             match rx_midi_in.try_recv() {
                 Ok(MidiInMessage::NoteOn(note, velocity)) => {
@@ -131,7 +138,10 @@ pub fn run_clock(
                 }
             }
 
-            thread::sleep(Duration::from_millis(period_ms));
+            // work out when next clock tick is
+            let accuracy = Duration::from_millis(1);
+            tick_time += Duration::from_millis(period_ms);
+            thread::park_timeout(tick_time - accuracy - Instant::now());
         }
     });
     // TODO stop playing midi notes!
