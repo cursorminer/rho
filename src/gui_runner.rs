@@ -17,6 +17,8 @@ struct UiState {
     note_strings_for_rows: Vec<String>,
     hold_checkbox_enabled: bool,
     playing_steps_for_rows: [Option<usize>; NUM_ROWS],
+    playing: bool,
+    tempo: f32,
 }
 
 impl UiState {
@@ -29,6 +31,8 @@ impl UiState {
             note_strings_for_rows: vec!["".to_string(); NUM_ROWS],
             hold_checkbox_enabled: false,
             playing_steps_for_rows: [None; NUM_ROWS],
+            playing: false,
+            tempo: 120.0,
         }
     }
 }
@@ -49,6 +53,15 @@ pub fn run_gui(
 
     // grid could go in UiState too
     let mut grid = GridActivations::new(4, 4);
+
+    // TODO send all the intial gui state to Rho
+    let _ = tx.send(MessageGuiToRho::SetTempo {
+        tempo: ui_state.tempo,
+    });
+
+    let _ = tx.send(MessageGuiToRho::RowActivations {
+        row_activations: grid.get_row_activations(),
+    });
 
     let _ = eframe::run_simple_native("My egui App", options, move |ctx, _frame| {
         // these vars are reset each frame
@@ -265,5 +278,25 @@ fn top_panel(
                 });
             }
         });
+
+        ui.add_space(10.0);
+
+        // add transport controls
+        ui.horizontal(|ui| {
+            if ui.checkbox(&mut ui_state.playing, "Play").clicked() {
+                let _ = tx.send(MessageGuiToRho::SetPlaying { playing: true });
+            }
+
+            if ui
+                .add(egui::Slider::new(&mut ui_state.tempo, 40.0..=1000.0).text("Tempo"))
+                .changed()
+            {
+                let _ = tx.send(MessageGuiToRho::SetTempo {
+                    tempo: ui_state.tempo,
+                });
+            }
+        });
+
+        ui.add_space(10.0);
     });
 }

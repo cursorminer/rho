@@ -42,4 +42,10 @@ pub enum MessageGuiToRho {
     SetMidiChannelOut {
         channel: u8,
     },
+    SetPlaying {
+        playing: bool,
+    },
+    SetTempo {
+        tempo: f32,
+    },
 }

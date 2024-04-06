@@ -20,14 +20,17 @@ pub fn run_clock(
 ) -> thread::JoinHandle<()> {
     let mut rho = Rho::new();
 
+    // is this ARC necessary?
     let clock_arc = Arc::new(Mutex::new(Clock::new()));
-    let sample_rate = 32.0;
+    let sample_rate = 1000.0;
     let period_ms = (1000.0 / sample_rate) as u64;
 
     let mut sent_notes_for_rows: [Vec<Note>; NUM_ROWS] = Default::default();
     let mut midi_out_channel: u8 = 0;
 
     let mut maybe_midi_out_conn: Option<MidiOutputConnection> = None;
+
+    let mut is_playing = false;
 
     // run a clock in another thread.
     let handle = thread::spawn(move || {
@@ -64,55 +67,68 @@ pub fn run_clock(
                 Ok(MessageGuiToRho::SetMidiChannelOut { channel }) => {
                     midi_out_channel = channel;
                 }
+                Ok(MessageGuiToRho::SetPlaying { playing }) => {
+                    is_playing = playing;
+                }
+                Ok(MessageGuiToRho::SetTempo { tempo }) => {
+                    let mut clock = clock_arc.lock().unwrap();
+                    let rate_hz = tempo / 60.0;
+                    clock.set_rate(rate_hz, sample_rate);
+                }
                 _ => (),
             }
 
             let mut clock = clock_arc.lock().unwrap();
-            clock.set_rate(8.0, sample_rate);
 
-            let clock_out = clock.tick();
-            if let Some(c) = clock_out {
-                if c {
-                    // now get the notes to play
-                    let notes_to_play = rho.on_clock_high();
+            if is_playing {
+                let clock_out = clock.tick();
+                if let Some(c) = clock_out {
+                    if c {
+                        // now get the notes to play
+                        let notes_to_play = rho.on_clock_high();
 
-                    for note in notes_to_play {
-                        print!("----------clock------------- OUTPUT note on {}\n", note);
-                        // send midi note on
-                        let midi_out_conn = maybe_midi_out_conn.as_mut().unwrap();
-                        midi_out_conn
-                            .send(&[NOTE_ON_MSG + midi_out_channel, note.note_number as u8, 0x64])
-                            .unwrap();
-                    }
-                    tx.send(MessageToGui::Tick {
-                        playing_steps: rho.get_playing_steps(),
-                    })
-                    .unwrap();
-                } else {
-                    // send midi off for all notes
-                    let notes_to_stop = rho.on_clock_low();
-                    for note in notes_to_stop {
-                        print!("----------clock------------- OUTPUT note off {}\n", note);
-                        // send midi note off
-                        // TODO this can panic!
-                        let midi_out_conn = maybe_midi_out_conn.as_mut().unwrap();
-                        midi_out_conn
-                            .send(&[
-                                NOTE_OFF_MSG + midi_out_channel,
-                                note.note_number as u8,
-                                0x64,
-                            ])
-                            .unwrap();
+                        for note in notes_to_play {
+                            print!("----------clock------------- OUTPUT note on {}\n", note);
+                            // send midi note on
+                            let midi_out_conn = maybe_midi_out_conn.as_mut().unwrap();
+                            midi_out_conn
+                                .send(&[
+                                    NOTE_ON_MSG + midi_out_channel,
+                                    note.note_number as u8,
+                                    0x64,
+                                ])
+                                .unwrap();
+                        }
+                        tx.send(MessageToGui::Tick {
+                            playing_steps: rho.get_playing_steps(),
+                        })
+                        .unwrap();
+                    } else {
+                        // send midi off for all notes
+                        let notes_to_stop = rho.on_clock_low();
+                        for note in notes_to_stop {
+                            print!("----------clock------------- OUTPUT note off {}\n", note);
+                            // send midi note off
+                            // TODO this can panic!
+                            let midi_out_conn = maybe_midi_out_conn.as_mut().unwrap();
+                            midi_out_conn
+                                .send(&[
+                                    NOTE_OFF_MSG + midi_out_channel,
+                                    note.note_number as u8,
+                                    0x64,
+                                ])
+                                .unwrap();
+                        }
                     }
                 }
-            }
 
-            let new_notes_for_rows = rho.get_notes_for_rows();
-            if new_notes_for_rows != sent_notes_for_rows {
-                sent_notes_for_rows = new_notes_for_rows.clone();
-                let _ = tx.send(MessageToGui::NotesForRows {
-                    notes: new_notes_for_rows,
-                });
+                let new_notes_for_rows = rho.get_notes_for_rows();
+                if new_notes_for_rows != sent_notes_for_rows {
+                    sent_notes_for_rows = new_notes_for_rows.clone();
+                    let _ = tx.send(MessageToGui::NotesForRows {
+                        notes: new_notes_for_rows,
+                    });
+                }
             }
 
             thread::sleep(Duration::from_millis(period_ms));
