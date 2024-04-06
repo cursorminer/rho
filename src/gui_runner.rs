@@ -151,30 +151,7 @@ pub fn run_gui(
             }
 
             for row in (0..NUM_ROWS).rev() {
-                ui.horizontal(|ui| {
-                    // a text display of the note for this row
-
-                    ui.add_sized(
-                        [100.0, 50.0],
-                        egui::Label::new(&ui_state.note_strings_for_rows[row]),
-                    );
-
-                    let mut row_length = grid.row_length(row);
-                    if ui
-                        .add(egui::Slider::new(&mut row_length, 2..=8).text("Row Length"))
-                        .changed()
-                    {
-                        grid.set_row_length(row, row_length);
-                        do_send_row_activations = true;
-                    }
-                    for step in 0..row_length {
-                        let mut active = grid.get(row, step);
-                        if toggle_ui(ui, &mut active).changed() {
-                            grid.set(row, step, active);
-                            do_send_row_activations = true;
-                        }
-                    }
-                });
+                do_send_row_activations = draw_row(ui, &mut grid, &mut ui_state, row);
             }
 
             match rx.try_recv() {
@@ -204,4 +181,43 @@ pub fn run_gui(
             ctx.request_repaint_after(Duration::from_millis(100));
         });
     });
+}
+
+// draw a single row: todo make it stretchy
+fn draw_row(
+    ui: &mut egui::Ui,
+    grid: &mut GridActivations,
+    ui_state: &mut UiState,
+    row: usize,
+) -> bool {
+    let mut do_send_row_activations = false;
+
+    ui.horizontal(|ui| {
+        // a text display of the note for this row
+        ui.add_sized(
+            [100.0, 50.0],
+            egui::Label::new(&ui_state.note_strings_for_rows[row]),
+        );
+
+        // draw the row of steps
+        for step in 0..row_length {
+            let mut active = grid.get(row, step);
+            if toggle_ui(ui, &mut active).changed() {
+                grid.set(row, step, active);
+                do_send_row_activations = true;
+            }
+        }
+
+        // todo replace with +- buttons
+        let mut row_length = grid.row_length(row);
+        if ui
+            .add(egui::Slider::new(&mut row_length, 2..=8).text("Row Length"))
+            .changed()
+        {
+            grid.set_row_length(row, row_length);
+            do_send_row_activations = true;
+        }
+    });
+
+    do_send_row_activations
 }
