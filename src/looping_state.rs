@@ -47,6 +47,10 @@ where
     pub fn clone_data(&self) -> Vec<T> {
         self.data.clone()
     }
+
+    pub fn get_current_step(&self) -> usize {
+        self.counter
+    }
 }
 
 // is there a point to doing this? could it be useful?

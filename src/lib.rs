@@ -89,6 +89,18 @@ impl Rho {
         notes_to_stop
     }
 
+    pub fn get_playing_steps(&self) -> [Option<usize>; NUM_ROWS] {
+        let mut steps = [None; NUM_ROWS];
+        let mut i = 0;
+        for row in self.row_loopers.iter() {
+            if self.note_assigner.row_is_active(i) {
+                steps[i] = Some(row.get_current_step());
+            }
+            i += 1;
+        }
+        steps
+    }
+
     fn track_midi_notes(&mut self, notes: Vec<note_assigner::Note>) {
         for note in notes {
             self.playing_notes.push(note);
@@ -138,5 +150,8 @@ mod tests {
 
         let notes = rho.on_clock_high();
         assert_eq!(notes.len(), 4);
+
+        let playing_steps = rho.get_playing_steps();
+        assert_eq!(playing_steps, [Some(0), Some(0), Some(0), Some(0)]);
     }
 }

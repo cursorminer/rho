@@ -51,10 +51,31 @@ pub fn run_gui(
     let _ = eframe::run_simple_native("My egui App", options, move |ctx, _frame| {
         // these vars are reset each frame
         let mut do_send_row_activations = false;
+        let mut playing_steps_for_rows: [Option<usize>; NUM_ROWS] = [None; NUM_ROWS];
 
         top_panel(ctx, &mut ui_state, &tx);
 
         egui::CentralPanel::default().show(ctx, |ui| {
+            // first recieve messages from the clock thread
+            match rx.try_recv() {
+                Ok(MessageToGui::Tick { playing_steps }) => {
+                    playing_steps_for_rows = playing_steps;
+                    ctx.request_repaint();
+                }
+                Ok(MessageToGui::NotesForRows { notes }) => {
+                    // assign notes to the note_strings_for_rows
+                    for i in 0..NUM_ROWS {
+                        let mut note_str = String::new();
+                        for note in notes[i].iter() {
+                            note_str.push_str(&format!("{} ", note));
+                        }
+                        ui_state.note_strings_for_rows[i] = note_str.clone();
+                        ctx.request_repaint();
+                    }
+                }
+                _ => (),
+            }
+
             let mut density: usize = (grid.get_normalized_density() * 127.0) as usize;
 
             for row in (0..NUM_ROWS).rev() {
@@ -85,24 +106,6 @@ pub fn run_gui(
                     });
                 }
             });
-
-            match rx.try_recv() {
-                Ok(MessageToGui::Tick { .. }) => {
-                    ctx.request_repaint();
-                }
-                Ok(MessageToGui::NotesForRows { notes }) => {
-                    // assign notes to the note_strings_for_rows
-                    for i in 0..NUM_ROWS {
-                        let mut note_str = String::new();
-                        for note in notes[i].iter() {
-                            note_str.push_str(&format!("{} ", note));
-                        }
-                        ui_state.note_strings_for_rows[i] = note_str.clone();
-                        ctx.request_repaint();
-                    }
-                }
-                _ => (),
-            }
 
             if do_send_row_activations {
                 let _ = tx.send(MessageGuiToRho::RowActivations {

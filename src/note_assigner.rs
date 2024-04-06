@@ -307,6 +307,10 @@ impl NoteAssigner {
         self.active_row_indices().len()
     }
 
+    pub fn row_is_active(&self, index: usize) -> bool {
+        index < NUM_ROWS && self.rows[index].active
+    }
+
     // "private" stuff
 
     // reverses the order of indices, but only for active rows

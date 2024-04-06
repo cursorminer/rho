@@ -79,7 +79,10 @@ pub fn run_clock(
                             .send(&[NOTE_ON_MSG + midi_out_channel, note.note_number as u8, 0x64])
                             .unwrap();
                     }
-                    tx.send(MessageToGui::Tick { high: true }).unwrap();
+                    tx.send(MessageToGui::Tick {
+                        playing_steps: rho.get_playing_steps(),
+                    })
+                    .unwrap();
                 } else {
                     // send midi off for all notes
                     let notes_to_stop = rho.on_clock_low();
@@ -94,7 +97,6 @@ pub fn run_clock(
                             ])
                             .unwrap();
                     }
-                    tx.send(MessageToGui::Tick { high: false }).unwrap();
                 }
             }
 

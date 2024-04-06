@@ -14,8 +14,12 @@ pub enum MidiInMessage {
 
 // messages from the clock to the gui, to display the state of the sequencer
 pub enum MessageToGui {
-    NotesForRows { notes: [Vec<Note>; NUM_ROWS] },
-    Tick { high: bool },
+    NotesForRows {
+        notes: [Vec<Note>; NUM_ROWS],
+    },
+    Tick {
+        playing_steps: [Option<usize>; NUM_ROWS],
+    },
 }
 
 // messages from the gui to the rho sequencer (clock thread). send when the row activations change
