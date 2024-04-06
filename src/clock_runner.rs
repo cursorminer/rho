@@ -22,6 +22,8 @@ pub fn run_clock(
 
     // is this ARC necessary?
     let clock_arc = Arc::new(Mutex::new(Clock::new()));
+    // this is stupid, it only works if we have audio clock rate to sync to
+    // the clock should just be at whatever the tempo is
     let sample_rate = 1000.0;
     let period_ms = (1000.0 / sample_rate) as u64;
 
