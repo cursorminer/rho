@@ -14,10 +14,11 @@ use std::time::Duration;
 pub fn run_clock(
     tx: std::sync::mpsc::Sender<MessageToGui>,
     running: Arc<AtomicBool>,
-    mut rho: Rho,
     rx_midi_in: std::sync::mpsc::Receiver<MidiInMessage>,
     rx_gui: std::sync::mpsc::Receiver<MessageGuiToRho>,
 ) -> thread::JoinHandle<()> {
+    let mut rho = Rho::new();
+
     let clock_arc = Arc::new(Mutex::new(Clock::new()));
     let sample_rate = 32.0;
     let period_ms = (1000.0 / sample_rate) as u64;

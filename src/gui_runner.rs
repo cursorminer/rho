@@ -35,7 +35,6 @@ impl UiState {
 pub fn run_gui(
     rx: std::sync::mpsc::Receiver<MessageToGui>,
     tx: std::sync::mpsc::Sender<MessageGuiToRho>,
-    mut grid: GridActivations,
 ) {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default().with_inner_size([600.0, 600.0]),
@@ -45,6 +44,9 @@ pub fn run_gui(
     };
 
     let mut ui_state = UiState::new();
+
+    // grid could go in UiState too
+    let mut grid = GridActivations::new(4, 4);
 
     let _ = eframe::run_simple_native("My egui App", options, move |ctx, _frame| {
         // set up midi list here TODO this happens every frame! Might be slow
