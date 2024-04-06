@@ -94,7 +94,8 @@ pub fn run_gui(
 
             for row in (0..NUM_ROWS).rev() {
                 let playing_step = ui_state.playing_steps_for_rows[row];
-                do_send_row_activations = draw_row(ui, &mut grid, &mut ui_state, row, playing_step);
+                do_send_row_activations = do_send_row_activations
+                    || draw_row(ui, &mut grid, &mut ui_state, row, playing_step);
             }
 
             ui.horizontal(|ui| {
