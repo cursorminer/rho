@@ -8,6 +8,29 @@ use eframe::egui;
 use midir::{MidiInput, MidiOutput};
 use std::time::Duration;
 
+struct UiState {
+    // these vars are persistent across frames
+    selected_in_port: usize,
+    selected_out_port: usize,
+    midi_in_channel: u8,
+    midi_out_channel: u8,
+    note_strings_for_rows: Vec<String>,
+    hold_checkbox_enabled: bool,
+}
+
+impl UiState {
+    fn new() -> Self {
+        Self {
+            selected_in_port: 0,
+            selected_out_port: 0,
+            midi_in_channel: 0,
+            midi_out_channel: 0,
+            note_strings_for_rows: vec!["".to_string(); NUM_ROWS],
+            hold_checkbox_enabled: false,
+        }
+    }
+}
+
 // gui takes ownership of the grid
 pub fn run_gui(
     rx: std::sync::mpsc::Receiver<MessageToGui>,
@@ -21,13 +44,7 @@ pub fn run_gui(
         ..Default::default()
     };
 
-    // these vars are persistent across frames
-    let mut selected_in_port = 0;
-    let mut selected_out_port = 0;
-    let mut midi_in_channel: u8 = 0;
-    let mut midi_out_channel: u8 = 0;
-    let mut note_strings_for_rows = vec!["".to_string(); NUM_ROWS];
-    let mut hold_checkbox_state = false;
+    let mut ui_state = UiState::new();
 
     let _ = eframe::run_simple_native("My egui App", options, move |ctx, _frame| {
         // set up midi list here TODO this happens every frame! Might be slow
@@ -54,11 +71,11 @@ pub fn run_gui(
 
             ui.horizontal(|ui| {
                 let response = egui::ComboBox::from_label("Midi In Port")
-                    .selected_text(format!("{:?}", in_port_names[selected_in_port]))
+                    .selected_text(format!("{:?}", in_port_names[ui_state.selected_in_port]))
                     .show_ui(ui, |ui| {
                         let mut i = 0;
                         for port in in_port_names.iter() {
-                            ui.selectable_value(&mut selected_in_port, i, port);
+                            ui.selectable_value(&mut ui_state.selected_in_port, i, port);
                             i += 1;
                         }
                     });
@@ -66,43 +83,43 @@ pub fn run_gui(
                 // if the midi port selection was changed, send a message to the clock thread
                 if response.response.changed() {
                     let _ = tx.send(MessageGuiToRho::SetMidiInPort {
-                        port: selected_in_port,
+                        port: ui_state.selected_in_port,
                     });
                 }
 
                 if ui
-                    .add(egui::DragValue::new(&mut midi_in_channel).clamp_range(0..=15))
+                    .add(egui::DragValue::new(&mut ui_state.midi_in_channel).clamp_range(0..=15))
                     .changed()
                 {
                     let _ = tx.send(MessageGuiToRho::SetMidiChannelIn {
-                        channel: midi_in_channel,
+                        channel: ui_state.midi_in_channel,
                     });
                 }
             });
 
             ui.horizontal(|ui| {
                 let response = egui::ComboBox::from_label("Midi Out Port")
-                    .selected_text(format!("{:?}", out_port_names[selected_out_port]))
+                    .selected_text(format!("{:?}", out_port_names[ui_state.selected_out_port]))
                     .show_ui(ui, |ui| {
                         let mut i = 0;
                         for port in out_port_names.iter() {
-                            ui.selectable_value(&mut selected_out_port, i, port);
+                            ui.selectable_value(&mut ui_state.selected_out_port, i, port);
                             i += 1;
                         }
                     });
 
                 if response.response.changed() {
                     let _ = tx.send(MessageGuiToRho::SetMidiInPort {
-                        port: selected_out_port,
+                        port: ui_state.selected_out_port,
                     });
                 }
 
                 if ui
-                    .add(egui::DragValue::new(&mut midi_out_channel).clamp_range(0..=15))
+                    .add(egui::DragValue::new(&mut ui_state.midi_out_channel).clamp_range(0..=15))
                     .changed()
                 {
                     let _ = tx.send(MessageGuiToRho::SetMidiChannelOut {
-                        channel: midi_out_channel,
+                        channel: ui_state.midi_out_channel,
                     });
                 }
             });
@@ -122,9 +139,12 @@ pub fn run_gui(
                 do_send_row_activations = true;
             }
 
-            if ui.checkbox(&mut hold_checkbox_state, "Hold").changed() {
+            if ui
+                .checkbox(&mut ui_state.hold_checkbox_enabled, "Hold")
+                .changed()
+            {
                 let _ = tx.send(MessageGuiToRho::HoldNotesEnabled {
-                    enabled: hold_checkbox_state,
+                    enabled: ui_state.hold_checkbox_enabled,
                 });
             }
 
@@ -132,7 +152,10 @@ pub fn run_gui(
                 ui.horizontal(|ui| {
                     // a text display of the note for this row
 
-                    ui.add_sized([100.0, 50.0], egui::Label::new(&note_strings_for_rows[row]));
+                    ui.add_sized(
+                        [100.0, 50.0],
+                        egui::Label::new(&ui_state.note_strings_for_rows[row]),
+                    );
 
                     let mut row_length = grid.row_length(row);
                     if ui
@@ -163,7 +186,7 @@ pub fn run_gui(
                         for note in notes[i].iter() {
                             note_str.push_str(&format!("{} ", note));
                         }
-                        note_strings_for_rows[i] = note_str.clone();
+                        ui_state.note_strings_for_rows[i] = note_str.clone();
                         ctx.request_repaint();
                     }
                 }
