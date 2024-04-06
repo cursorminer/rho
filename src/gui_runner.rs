@@ -49,82 +49,11 @@ pub fn run_gui(
     let mut grid = GridActivations::new(4, 4);
 
     let _ = eframe::run_simple_native("My egui App", options, move |ctx, _frame| {
-        // set up midi list here TODO this happens every frame! Might be slow
-        let midi_in = MidiInput::new("midir input").unwrap();
-        let in_ports = midi_in.ports();
-        let in_port_names: Vec<String> = in_ports
-            .iter()
-            .map(|port| midi_in.port_name(port).unwrap())
-            .collect();
-
-        let midi_out = MidiOutput::new("midir output").unwrap();
-        let out_ports = midi_out.ports();
-        // let in_port_name = midi_in.port_name(&in_port)?;
-        let out_port_names: Vec<String> = out_ports
-            .iter()
-            .map(|port| midi_out.port_name(port).unwrap())
-            .collect();
-
         // these vars are reset each frame
         let mut do_send_row_activations = false;
 
         egui::CentralPanel::default().show(ctx, |ui| {
-            ui.heading("Rho Sequencer");
-
-            ui.horizontal(|ui| {
-                let response = egui::ComboBox::from_label("Midi In Port")
-                    .selected_text(format!("{:?}", in_port_names[ui_state.selected_in_port]))
-                    .show_ui(ui, |ui| {
-                        let mut i = 0;
-                        for port in in_port_names.iter() {
-                            ui.selectable_value(&mut ui_state.selected_in_port, i, port);
-                            i += 1;
-                        }
-                    });
-
-                // if the midi port selection was changed, send a message to the clock thread
-                if response.response.changed() {
-                    let _ = tx.send(MessageGuiToRho::SetMidiInPort {
-                        port: ui_state.selected_in_port,
-                    });
-                }
-
-                if ui
-                    .add(egui::DragValue::new(&mut ui_state.midi_in_channel).clamp_range(0..=15))
-                    .changed()
-                {
-                    let _ = tx.send(MessageGuiToRho::SetMidiChannelIn {
-                        channel: ui_state.midi_in_channel,
-                    });
-                }
-            });
-
-            ui.horizontal(|ui| {
-                let response = egui::ComboBox::from_label("Midi Out Port")
-                    .selected_text(format!("{:?}", out_port_names[ui_state.selected_out_port]))
-                    .show_ui(ui, |ui| {
-                        let mut i = 0;
-                        for port in out_port_names.iter() {
-                            ui.selectable_value(&mut ui_state.selected_out_port, i, port);
-                            i += 1;
-                        }
-                    });
-
-                if response.response.changed() {
-                    let _ = tx.send(MessageGuiToRho::SetMidiInPort {
-                        port: ui_state.selected_out_port,
-                    });
-                }
-
-                if ui
-                    .add(egui::DragValue::new(&mut ui_state.midi_out_channel).clamp_range(0..=15))
-                    .changed()
-                {
-                    let _ = tx.send(MessageGuiToRho::SetMidiChannelOut {
-                        channel: ui_state.midi_out_channel,
-                    });
-                }
-            });
+            top_panel(ui, &mut ui_state, &tx);
 
             let mut density: usize = (grid.get_normalized_density() * 127.0) as usize;
             if ui
@@ -200,6 +129,7 @@ fn draw_row(
         );
 
         // draw the row of steps
+        let mut row_length = grid.row_length(row);
         for step in 0..row_length {
             let mut active = grid.get(row, step);
             if toggle_ui(ui, &mut active).changed() {
@@ -209,7 +139,6 @@ fn draw_row(
         }
 
         // todo replace with +- buttons
-        let mut row_length = grid.row_length(row);
         if ui
             .add(egui::Slider::new(&mut row_length, 2..=8).text("Row Length"))
             .changed()
@@ -220,4 +149,84 @@ fn draw_row(
     });
 
     do_send_row_activations
+}
+
+fn top_panel(
+    ui: &mut egui::Ui,
+    ui_state: &mut UiState,
+    tx: &std::sync::mpsc::Sender<MessageGuiToRho>,
+) {
+    // set up midi list here TODO this happens every frame! Might be slow
+    // could instead use a popup window to set midi ports and if they come and go then we don't care
+    let midi_in = MidiInput::new("midir input").unwrap();
+    let in_ports = midi_in.ports();
+    let in_port_names: Vec<String> = in_ports
+        .iter()
+        .map(|port| midi_in.port_name(port).unwrap())
+        .collect();
+
+    let midi_out = MidiOutput::new("midir output").unwrap();
+    let out_ports = midi_out.ports();
+    // let in_port_name = midi_in.port_name(&in_port)?;
+    let out_port_names: Vec<String> = out_ports
+        .iter()
+        .map(|port| midi_out.port_name(port).unwrap())
+        .collect();
+
+    ui.heading("Rho Sequencer");
+
+    ui.horizontal(|ui| {
+        let response = egui::ComboBox::from_label("Midi In Port")
+            .selected_text(format!("{:?}", in_port_names[ui_state.selected_in_port]))
+            .show_ui(ui, |ui| {
+                let mut i = 0;
+                for port in in_port_names.iter() {
+                    ui.selectable_value(&mut ui_state.selected_in_port, i, port);
+                    i += 1;
+                }
+            });
+
+        // if the midi port selection was changed, send a message to the clock thread
+        if response.response.changed() {
+            let _ = tx.send(MessageGuiToRho::SetMidiInPort {
+                port: ui_state.selected_in_port,
+            });
+        }
+
+        if ui
+            .add(egui::DragValue::new(&mut ui_state.midi_in_channel).clamp_range(0..=15))
+            .changed()
+        {
+            let _ = tx.send(MessageGuiToRho::SetMidiChannelIn {
+                channel: ui_state.midi_in_channel,
+            });
+        }
+    });
+
+    ui.horizontal(|ui| {
+        let response = egui::ComboBox::from_label("Midi Out Port")
+            .selected_text(format!("{:?}", out_port_names[ui_state.selected_out_port]))
+            .show_ui(ui, |ui| {
+                let mut i = 0;
+                for port in out_port_names.iter() {
+                    ui.selectable_value(&mut ui_state.selected_out_port, i, port);
+                    i += 1;
+                }
+            });
+
+        if response.response.changed() {
+            let _ = tx.send(MessageGuiToRho::SetMidiOutPort {
+                port: ui_state.selected_out_port,
+            });
+        }
+
+        if ui
+            .add(egui::DragValue::new(&mut ui_state.midi_out_channel).clamp_range(0..=15))
+            .changed()
+        {
+            let _ = tx.send(MessageGuiToRho::SetMidiChannelOut {
+                channel: ui_state.midi_out_channel,
+            });
+        }
+    });
 }
