@@ -29,11 +29,15 @@ pub fn step_switch_ui(ui: &mut egui::Ui, on: &mut bool, is_playing: bool) -> egu
         // All coordinates are in absolute screen coordinates so we use `rect` to place the elements.
         let rect = rect.expand(visuals.expansion);
         let radius = 0.1 * rect.height();
-        let playing_color = Color32::from_rgb(113, 175, 175);
+        let playing_color = if *on {
+            Color32::WHITE
+        } else {
+            Color32::from_rgb(113, 175, 175)
+        };
         let on_color = Color32::from_rgb(240, 186, 113);
         let off_color = Color32::from_rgb(58, 58, 58);
 
-        let fill_color = egui::Color32::from_rgb(
+        let fill_color = Color32::from_rgb(
             egui::lerp((off_color.r() as f32)..=(on_color.r() as f32), how_on) as u8,
             egui::lerp((off_color.g() as f32)..=(on_color.g() as f32), how_on) as u8,
             egui::lerp((off_color.b() as f32)..=(on_color.b() as f32), how_on) as u8,
@@ -42,7 +46,7 @@ pub fn step_switch_ui(ui: &mut egui::Ui, on: &mut bool, is_playing: bool) -> egu
         if is_playing {
             ui.painter()
                 .rect(rect, radius, playing_color, visuals.bg_stroke);
-            let inner_rect = rect.expand(-radius); // make room for the border
+            let inner_rect = rect.expand(-radius / 2.0); // make room for the border
             ui.painter()
                 .rect(inner_rect, radius, fill_color, visuals.bg_stroke);
         } else {
