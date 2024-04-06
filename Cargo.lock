@@ -1002,6 +1002,7 @@ dependencies = [
  "humantime",
  "is-terminal",
  "log",
+ "regex",
  "termcolor",
 ]
 
@@ -2127,8 +2128,11 @@ version = "0.1.0"
 dependencies = [
  "eframe",
  "env_logger",
+ "log",
  "midir",
  "rand",
+ "serde",
+ "wasm-bindgen-futures",
 ]
 
 [[package]]
