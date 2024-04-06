@@ -3,6 +3,9 @@
 use crate::note_assigner::Note;
 use crate::rho_config::NUM_ROWS;
 
+pub const NOTE_ON_MSG: u8 = 0x90;
+pub const NOTE_OFF_MSG: u8 = 0x80;
+
 // when notes are recieved, we send them to the rho sequencer via a channel
 pub enum MidiInMessage {
     NoteOn(u8, u8),

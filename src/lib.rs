@@ -2,8 +2,11 @@
 
 extern crate rand;
 
+pub mod clock_runner;
 pub mod grid_activations;
+pub mod gui_runner;
 pub mod messages;
+pub mod midi_helpers;
 pub mod note_assigner;
 pub mod rho_config;
 pub mod step_switch;
