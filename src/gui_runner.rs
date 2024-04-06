@@ -51,7 +51,8 @@ pub fn run_gui(
     let _ = eframe::run_simple_native("My egui App", options, move |ctx, _frame| {
         // these vars are reset each frame
         let mut do_send_row_activations = false;
-        let mut playing_steps_for_rows: [Option<usize>; NUM_ROWS] = [None; NUM_ROWS];
+        let mut playing_steps_for_rows: [Option<usize>; NUM_ROWS] =
+            [Some(1), Some(1), Some(1), Some(1)];
 
         top_panel(ctx, &mut ui_state, &tx);
 
@@ -79,7 +80,8 @@ pub fn run_gui(
             let mut density: usize = (grid.get_normalized_density() * 127.0) as usize;
 
             for row in (0..NUM_ROWS).rev() {
-                do_send_row_activations = draw_row(ui, &mut grid, &mut ui_state, row);
+                let playing_step = playing_steps_for_rows[row];
+                do_send_row_activations = draw_row(ui, &mut grid, &mut ui_state, row, playing_step);
             }
 
             ui.horizontal(|ui| {
@@ -124,6 +126,7 @@ fn draw_row(
     grid: &mut GridActivations,
     ui_state: &mut UiState,
     row: usize,
+    playing_step: Option<usize>,
 ) -> bool {
     let mut do_send_row_activations = false;
 
@@ -152,10 +155,11 @@ fn draw_row(
         let step_width = steps_width / row_length as f32;
         for step in 0..row_length {
             let mut active = grid.get(row, step);
+            let is_playing = playing_step == Some(step);
 
             // set the size on this step switch
             if ui
-                .add_sized([step_width, 50.0], step_switch(&mut active))
+                .add_sized([step_width, 50.0], step_switch(&mut active, is_playing))
                 .changed()
             {
                 grid.set(row, step, active);
