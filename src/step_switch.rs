@@ -16,7 +16,7 @@ use egui::Color32;
 /// ``` ignore
 /// toggle_ui(ui, &mut my_bool);
 /// ```
-pub fn toggle_ui(ui: &mut egui::Ui, on: &mut bool) -> egui::Response {
+pub fn step_switch_ui(ui: &mut egui::Ui, on: &mut bool) -> egui::Response {
     // Widget code can be broken up in four steps:
     //  1. Decide a size for the widget
     //  2. Allocate space for it
@@ -26,7 +26,10 @@ pub fn toggle_ui(ui: &mut egui::Ui, on: &mut bool) -> egui::Response {
     // 1. Deciding widget size:
     // You can query the `ui` how much space is available,
     // but in this example we have a fixed size widget based on the height of a standard button:
-    let desired_size = ui.spacing().interact_size.y * egui::vec2(4.0, 2.0);
+    let desired_height = ui.spacing().interact_size.y * 2.0;
+    // use all available width
+    let desired_width = ui.available_width();
+    let desired_size = egui::vec2(desired_width, desired_height);
 
     // 2. Allocating space:
     // This is where we get a region of the screen assigned.
@@ -73,33 +76,6 @@ pub fn toggle_ui(ui: &mut egui::Ui, on: &mut bool) -> egui::Response {
     response
 }
 
-/// Here is the same code again, but a bit more compact:
-#[allow(dead_code)]
-fn toggle_ui_compact(ui: &mut egui::Ui, on: &mut bool) -> egui::Response {
-    let desired_size = ui.spacing().interact_size.y * egui::vec2(2.0, 1.0);
-    let (rect, mut response) = ui.allocate_exact_size(desired_size, egui::Sense::click());
-    if response.clicked() {
-        *on = !*on;
-        response.mark_changed();
-    }
-    response.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Checkbox, *on, ""));
-
-    if ui.is_rect_visible(rect) {
-        let how_on = ui.ctx().animate_bool(response.id, *on);
-        let visuals = ui.style().interact_selectable(&response, *on);
-        let rect = rect.expand(visuals.expansion);
-        let radius = 0.5 * rect.height();
-        ui.painter()
-            .rect(rect, radius, visuals.bg_fill, visuals.bg_stroke);
-        let circle_x = egui::lerp((rect.left() + radius)..=(rect.right() - radius), how_on);
-        let center = egui::pos2(circle_x, rect.center().y);
-        ui.painter()
-            .circle(center, 0.75 * radius, visuals.bg_fill, visuals.fg_stroke);
-    }
-
-    response
-}
-
 // A wrapper that allows the more idiomatic usage pattern: `ui.add(toggle(&mut my_bool))`
 /// iOS-style toggle switch.
 ///
@@ -107,8 +83,8 @@ fn toggle_ui_compact(ui: &mut egui::Ui, on: &mut bool) -> egui::Response {
 /// ``` ignore
 /// ui.add(toggle(&mut my_bool));
 /// ```
-pub fn toggle(on: &mut bool) -> impl egui::Widget + '_ {
-    move |ui: &mut egui::Ui| toggle_ui(ui, on)
+pub fn step_switch(on: &mut bool) -> impl egui::Widget + '_ {
+    move |ui: &mut egui::Ui| step_switch_ui(ui, on)
 }
 
 pub fn url_to_file_source_code() -> String {

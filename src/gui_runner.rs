@@ -124,18 +124,37 @@ fn draw_row(
 ) -> bool {
     let mut do_send_row_activations = false;
 
+    // todo stretch this to fill the width of the panel
+
     ui.horizontal(|ui| {
+        let spacing = ui.spacing().item_spacing;
+
+        let fixed_left_width = 100.0;
+        let fixed_right_width = 200.0;
+
         // a text display of the note for this row
         ui.add_sized(
-            [100.0, 50.0],
+            [fixed_left_width, 50.0],
             egui::Label::new(&ui_state.note_strings_for_rows[row]),
         );
 
         // draw the row of steps
         let mut row_length = grid.row_length(row);
+
+        let steps_width = ui.available_size().x
+            - fixed_left_width
+            - fixed_right_width
+            - spacing.x * (row_length - 1) as f32;
+
+        let step_width = steps_width / row_length as f32;
         for step in 0..row_length {
             let mut active = grid.get(row, step);
-            if toggle_ui(ui, &mut active).changed() {
+
+            // set the size on this step switch
+            if ui
+                .add_sized([step_width, 50.0], step_switch(&mut active))
+                .changed()
+            {
                 grid.set(row, step, active);
                 do_send_row_activations = true;
             }
