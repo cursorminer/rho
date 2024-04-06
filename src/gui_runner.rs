@@ -16,6 +16,8 @@ pub fn run_gui(
 ) {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default().with_inner_size([600.0, 600.0]),
+        default_theme: eframe::Theme::Dark,
+        follow_system_theme: false,
         ..Default::default()
     };
 
@@ -24,7 +26,7 @@ pub fn run_gui(
     let mut selected_out_port = 0;
     let mut midi_in_channel: u8 = 0;
     let mut midi_out_channel: u8 = 0;
-    let mut note_strings_for_rows = vec!["C#".to_string(); NUM_ROWS];
+    let mut note_strings_for_rows = vec!["".to_string(); NUM_ROWS];
     let mut hold_checkbox_state = false;
 
     let _ = eframe::run_simple_native("My egui App", options, move |ctx, _frame| {
