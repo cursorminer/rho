@@ -52,36 +52,39 @@ pub fn run_gui(
         // these vars are reset each frame
         let mut do_send_row_activations = false;
 
+        top_panel(ctx, &mut ui_state, &tx);
+
         egui::CentralPanel::default().show(ctx, |ui| {
-            top_panel(ui, &mut ui_state, &tx);
-
             let mut density: usize = (grid.get_normalized_density() * 127.0) as usize;
-            if ui
-                .add(egui::Slider::new(&mut density, 0..=127).text("density"))
-                .changed()
-            {
-                let norm_density = density as f32 / 127.0;
-                grid.set_normalized_density(norm_density);
-                do_send_row_activations = true;
-            }
-
-            if ui.button("New Dist").clicked() {
-                grid.create_new_distribution_given_active_steps();
-                do_send_row_activations = true;
-            }
-
-            if ui
-                .checkbox(&mut ui_state.hold_checkbox_enabled, "Hold")
-                .changed()
-            {
-                let _ = tx.send(MessageGuiToRho::HoldNotesEnabled {
-                    enabled: ui_state.hold_checkbox_enabled,
-                });
-            }
 
             for row in (0..NUM_ROWS).rev() {
                 do_send_row_activations = draw_row(ui, &mut grid, &mut ui_state, row);
             }
+
+            ui.horizontal(|ui| {
+                if ui
+                    .add(egui::Slider::new(&mut density, 0..=127).text("density"))
+                    .changed()
+                {
+                    let norm_density = density as f32 / 127.0;
+                    grid.set_normalized_density(norm_density);
+                    do_send_row_activations = true;
+                }
+
+                if ui.button("New Dist").clicked() {
+                    grid.create_new_distribution_given_active_steps();
+                    do_send_row_activations = true;
+                }
+
+                if ui
+                    .checkbox(&mut ui_state.hold_checkbox_enabled, "Hold")
+                    .changed()
+                {
+                    let _ = tx.send(MessageGuiToRho::HoldNotesEnabled {
+                        enabled: ui_state.hold_checkbox_enabled,
+                    });
+                }
+            });
 
             match rx.try_recv() {
                 Ok(MessageToGui::Tick { .. }) => {
@@ -152,7 +155,7 @@ fn draw_row(
 }
 
 fn top_panel(
-    ui: &mut egui::Ui,
+    ctx: &egui::Context,
     ui_state: &mut UiState,
     tx: &std::sync::mpsc::Sender<MessageGuiToRho>,
 ) {
@@ -160,73 +163,81 @@ fn top_panel(
     // could instead use a popup window to set midi ports and if they come and go then we don't care
     let midi_in = MidiInput::new("midir input").unwrap();
     let in_ports = midi_in.ports();
-    let in_port_names: Vec<String> = in_ports
+    let mut in_port_names: Vec<String> = in_ports
         .iter()
         .map(|port| midi_in.port_name(port).unwrap())
         .collect();
 
+    if in_port_names.len() == 0 {
+        in_port_names.push("No Midi In Ports".to_string());
+    }
+
     let midi_out = MidiOutput::new("midir output").unwrap();
     let out_ports = midi_out.ports();
     // let in_port_name = midi_in.port_name(&in_port)?;
-    let out_port_names: Vec<String> = out_ports
+    let mut out_port_names: Vec<String> = out_ports
         .iter()
         .map(|port| midi_out.port_name(port).unwrap())
         .collect();
 
-    ui.heading("Rho Sequencer");
+    if out_port_names.len() == 0 {
+        out_port_names.push("No Midi Out Ports".to_string());
+    }
 
-    ui.horizontal(|ui| {
-        let response = egui::ComboBox::from_label("Midi In Port")
-            .selected_text(format!("{:?}", in_port_names[ui_state.selected_in_port]))
-            .show_ui(ui, |ui| {
-                let mut i = 0;
-                for port in in_port_names.iter() {
-                    ui.selectable_value(&mut ui_state.selected_in_port, i, port);
-                    i += 1;
-                }
-            });
+    egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
+        ui.heading("Rho Sequencer");
 
-        // if the midi port selection was changed, send a message to the clock thread
-        if response.response.changed() {
-            let _ = tx.send(MessageGuiToRho::SetMidiInPort {
-                port: ui_state.selected_in_port,
-            });
-        }
+        ui.horizontal(|ui| {
+            let response = egui::ComboBox::from_label("Midi In Port")
+                .selected_text(format!("{:?}", in_port_names[ui_state.selected_in_port]))
+                .show_ui(ui, |ui| {
+                    let mut i = 0;
+                    for port in in_port_names.iter() {
+                        ui.selectable_value(&mut ui_state.selected_in_port, i, port);
+                        i += 1;
+                    }
+                });
 
-        if ui
-            .add(egui::DragValue::new(&mut ui_state.midi_in_channel).clamp_range(0..=15))
-            .changed()
-        {
-            let _ = tx.send(MessageGuiToRho::SetMidiChannelIn {
-                channel: ui_state.midi_in_channel,
-            });
-        }
-    });
+            // if the midi port selection was changed, send a message to the clock thread
+            if response.response.changed() {
+                let _ = tx.send(MessageGuiToRho::SetMidiInPort {
+                    port: ui_state.selected_in_port,
+                });
+            }
 
-    ui.horizontal(|ui| {
-        let response = egui::ComboBox::from_label("Midi Out Port")
-            .selected_text(format!("{:?}", out_port_names[ui_state.selected_out_port]))
-            .show_ui(ui, |ui| {
-                let mut i = 0;
-                for port in out_port_names.iter() {
-                    ui.selectable_value(&mut ui_state.selected_out_port, i, port);
-                    i += 1;
-                }
-            });
+            if ui
+                .add(egui::DragValue::new(&mut ui_state.midi_in_channel).clamp_range(0..=15))
+                .changed()
+            {
+                let _ = tx.send(MessageGuiToRho::SetMidiChannelIn {
+                    channel: ui_state.midi_in_channel,
+                });
+            }
 
-        if response.response.changed() {
-            let _ = tx.send(MessageGuiToRho::SetMidiOutPort {
-                port: ui_state.selected_out_port,
-            });
-        }
+            let response = egui::ComboBox::from_label("Midi Out Port")
+                .selected_text(format!("{:?}", out_port_names[ui_state.selected_out_port]))
+                .show_ui(ui, |ui| {
+                    let mut i = 0;
+                    for port in out_port_names.iter() {
+                        ui.selectable_value(&mut ui_state.selected_out_port, i, port);
+                        i += 1;
+                    }
+                });
 
-        if ui
-            .add(egui::DragValue::new(&mut ui_state.midi_out_channel).clamp_range(0..=15))
-            .changed()
-        {
-            let _ = tx.send(MessageGuiToRho::SetMidiChannelOut {
-                channel: ui_state.midi_out_channel,
-            });
-        }
+            if response.response.changed() {
+                let _ = tx.send(MessageGuiToRho::SetMidiOutPort {
+                    port: ui_state.selected_out_port,
+                });
+            }
+
+            if ui
+                .add(egui::DragValue::new(&mut ui_state.midi_out_channel).clamp_range(0..=15))
+                .changed()
+            {
+                let _ = tx.send(MessageGuiToRho::SetMidiChannelOut {
+                    channel: ui_state.midi_out_channel,
+                });
+            }
+        });
     });
 }
