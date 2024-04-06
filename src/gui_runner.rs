@@ -16,6 +16,7 @@ struct UiState {
     midi_out_channel: u8,
     note_strings_for_rows: Vec<String>,
     hold_checkbox_enabled: bool,
+    playing_steps_for_rows: [Option<usize>; NUM_ROWS],
 }
 
 impl UiState {
@@ -27,6 +28,7 @@ impl UiState {
             midi_out_channel: 0,
             note_strings_for_rows: vec!["".to_string(); NUM_ROWS],
             hold_checkbox_enabled: false,
+            playing_steps_for_rows: [None; NUM_ROWS],
         }
     }
 }
@@ -51,8 +53,6 @@ pub fn run_gui(
     let _ = eframe::run_simple_native("My egui App", options, move |ctx, _frame| {
         // these vars are reset each frame
         let mut do_send_row_activations = false;
-        let mut playing_steps_for_rows: [Option<usize>; NUM_ROWS] =
-            [Some(1), Some(1), Some(1), Some(1)];
 
         top_panel(ctx, &mut ui_state, &tx);
 
@@ -60,7 +60,7 @@ pub fn run_gui(
             // first recieve messages from the clock thread
             match rx.try_recv() {
                 Ok(MessageToGui::Tick { playing_steps }) => {
-                    playing_steps_for_rows = playing_steps;
+                    ui_state.playing_steps_for_rows = playing_steps;
                     ctx.request_repaint();
                 }
                 Ok(MessageToGui::NotesForRows { notes }) => {
@@ -80,7 +80,7 @@ pub fn run_gui(
             let mut density: usize = (grid.get_normalized_density() * 127.0) as usize;
 
             for row in (0..NUM_ROWS).rev() {
-                let playing_step = playing_steps_for_rows[row];
+                let playing_step = ui_state.playing_steps_for_rows[row];
                 do_send_row_activations = draw_row(ui, &mut grid, &mut ui_state, row, playing_step);
             }
 

@@ -48,8 +48,18 @@ where
         self.data.clone()
     }
 
+    pub fn set_step(&mut self, step: usize, value: T) {
+        if step < self.data.len() {
+            self.data[step] = value;
+        }
+    }
+
     pub fn get_current_step(&self) -> usize {
-        self.counter
+        // counter is post incremented so we need to subtract 1
+        if self.data.len() == 0 {
+            return 0;
+        }
+        ((self.counter + self.data.len()) - 1) % self.data.len()
     }
 }
 

@@ -48,7 +48,10 @@ impl Rho {
             if self.row_loopers[i].len() != row_activations[i].len() {
                 self.row_loopers[i].resize(row_activations[i].len(), false);
             }
-            self.row_loopers[i] = looping_state::LoopingSequence::new(row_activations[i].clone());
+            // set each step
+            for (j, active) in row_activations[i].iter().enumerate() {
+                self.row_loopers[i].set_step(j, *active);
+            }
         }
     }
 
@@ -136,7 +139,7 @@ mod tests {
         rho.note_on(3, 100);
 
         let two_true = looping_state::LoopingSequence::new(vec![true, true]);
-        let mut rows = [
+        let rows = [
             two_true.clone(),
             two_true.clone(),
             two_true.clone(),
@@ -152,6 +155,6 @@ mod tests {
         assert_eq!(notes.len(), 4);
 
         let playing_steps = rho.get_playing_steps();
-        assert_eq!(playing_steps, [Some(0), Some(0), Some(0), Some(0)]);
+        assert_eq!(playing_steps, [Some(1), Some(1), Some(1), Some(1)]);
     }
 }

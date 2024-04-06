@@ -6,6 +6,7 @@ use crate::midi_helpers::*;
 use crate::note_assigner::Note;
 use crate::rho_config::NUM_ROWS;
 use crate::Rho;
+use midir::MidiOutputConnection;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -26,18 +27,10 @@ pub fn run_clock(
     let mut sent_notes_for_rows: [Vec<Note>; NUM_ROWS] = Default::default();
     let mut midi_out_channel: u8 = 0;
 
+    let mut maybe_midi_out_conn: Option<MidiOutputConnection> = None;
+
     // run a clock in another thread.
     let handle = thread::spawn(move || {
-        // open a midi out connection
-        let midi_out_conn = get_midi_out_connection();
-        let mut midi_out_conn = match midi_out_conn {
-            Ok(conn) => conn,
-            Err(e) => {
-                eprintln!("Error: {}", e);
-                return;
-            }
-        };
-
         while running.load(Ordering::SeqCst) {
             // check to see if there are any messages from the midi in
             match rx_midi_in.try_recv() {
@@ -57,6 +50,17 @@ pub fn run_clock(
                 Ok(MessageGuiToRho::HoldNotesEnabled { enabled }) => {
                     rho.set_hold_notes_enabled(enabled);
                 }
+                Ok(MessageGuiToRho::SetMidiOutPort { port }) => {
+                    // open a midi out connection
+                    let midi_out_conn = get_midi_out_connection(port);
+                    maybe_midi_out_conn = match midi_out_conn {
+                        Ok(conn) => Some(conn),
+                        Err(e) => {
+                            eprintln!("Error: {}", e);
+                            return;
+                        }
+                    };
+                }
                 Ok(MessageGuiToRho::SetMidiChannelOut { channel }) => {
                     midi_out_channel = channel;
                 }
@@ -75,6 +79,7 @@ pub fn run_clock(
                     for note in notes_to_play {
                         print!("----------clock------------- OUTPUT note on {}\n", note);
                         // send midi note on
+                        let midi_out_conn = maybe_midi_out_conn.as_mut().unwrap();
                         midi_out_conn
                             .send(&[NOTE_ON_MSG + midi_out_channel, note.note_number as u8, 0x64])
                             .unwrap();
@@ -89,6 +94,8 @@ pub fn run_clock(
                     for note in notes_to_stop {
                         print!("----------clock------------- OUTPUT note off {}\n", note);
                         // send midi note off
+                        // TODO this can panic!
+                        let midi_out_conn = maybe_midi_out_conn.as_mut().unwrap();
                         midi_out_conn
                             .send(&[
                                 NOTE_OFF_MSG + midi_out_channel,

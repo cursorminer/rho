@@ -11,7 +11,7 @@ pub fn set_up_midi_in_connection(
 ) -> Result<MidiInputConnection<Sender<MidiInMessage>>, Box<dyn Error>> {
     let mut midi_in = MidiInput::new("midir input")?;
     midi_in.ignore(Ignore::None);
-    let in_port = select_port(&midi_in, "input")?;
+    let in_port = select_port(&midi_in, "input", 0)?;
 
     let conn_in = midi_in.connect(
         &in_port,
@@ -48,11 +48,11 @@ pub fn on_midi_in(tx: &mut std::sync::mpsc::Sender<MidiInMessage>, _stamp: u64, 
     }
 }
 
-pub fn get_midi_out_connection() -> Result<MidiOutputConnection, Box<dyn Error>> {
+pub fn get_midi_out_connection(port_index: usize) -> Result<MidiOutputConnection, Box<dyn Error>> {
     let midi_out = MidiOutput::new("midir output")?;
 
     println!();
-    let out_port = select_port(&midi_out, "output")?;
+    let out_port = select_port(&midi_out, "output", port_index)?;
 
     // let in_port_name = midi_in.port_name(&in_port)?;
     let out_port_name = midi_out.port_name(&out_port)?;
@@ -69,21 +69,12 @@ pub fn get_midi_out_connection() -> Result<MidiOutputConnection, Box<dyn Error>>
     Ok(conn_out)
 }
 
-pub fn select_port<T: MidiIO>(midi_io: &T, descr: &str) -> Result<T::Port, Box<dyn Error>> {
-    println!("Available {} ports:", descr);
+pub fn select_port<T: MidiIO>(
+    midi_io: &T,
+    descr: &str,
+    port_index: usize,
+) -> Result<T::Port, Box<dyn Error>> {
     let midi_ports = midi_io.ports();
-    for (i, p) in midi_ports.iter().enumerate() {
-        println!("{}: {}", i, midi_io.port_name(p)?);
-    }
-    print!("Please select {} port: ", descr);
-    stdout().flush()?;
-    let mut input = String::new();
-    stdin().read_line(&mut input)?;
-    let port = midi_ports
-        .get(input.trim().parse::<usize>()?)
-        .ok_or("Invalid port number")?;
-
-    // to force set port
-    //let port = midi_ports.get(1).ok_or("Invalid port number")?;
+    let port = midi_ports.get(port_index).ok_or("Invalid port number")?;
     Ok(port.clone())
 }
