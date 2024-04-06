@@ -2,23 +2,22 @@
 name = "rho"
 version = "0.1.0"
 edition = "2021"
+rust-version = "1.73"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 rand = "0.8.5"
 midir = "0.9.1"
-eframe = { version = "0.26.0", default-features = false, features = [
+egui = "0.27.0"
+eframe = { version = "0.27.0", default-features = false, features = [
     "accesskit",     # Make egui comptaible with screen readers. NOTE: adds a lot of dependencies.
     "default_fonts", # Embed the default egui fonts.
     "glow",          # Use the glow rendering backend. Alternative: "wgpu".
     "persistence",   # Enable restoring app state when restarting the app.
 ] }
-env_logger = { version = "0.10", default-features = false, features = [
-    "auto-color",
-    "humantime",
-] }
 log = "0.4"
+
 
 # You only need serde if you want app persistence:
 serde = { version = "1", features = ["derive"] }
