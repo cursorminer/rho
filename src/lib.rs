@@ -174,8 +174,7 @@ impl Plugin for RhoPlugin {
         self.sample_rate = buffer_config.sample_rate;
 
         // this also runs after a state is loaded, so pick up the loaded grid
-        self.shared.publish_rows(&self.params.grid.lock().unwrap());
-        self.applied_rows = [ROWS_NOT_APPLIED; NUM_ROWS];
+        self.reload_rows();
         true
     }
 
@@ -189,6 +188,73 @@ impl Plugin for RhoPlugin {
             channel.fill(0.0);
         }
 
+        while let Some(event) = context.next_event() {
+            self.handle_event(event);
+        }
+
+        let num_samples = buffer.samples();
+        let transport = context.transport();
+        let position = match (transport.playing, transport.tempo, transport.pos_beats()) {
+            (true, Some(tempo), Some(start_beat)) => Some(Position { tempo, start_beat }),
+            _ => None,
+        };
+        let settings = Settings {
+            step_beats: self.params.step_length.value().beats(),
+            gate: self.params.gate.value() as f64,
+            hold: self.params.hold.value(),
+        };
+
+        self.process_block(num_samples, position, settings, &mut |event| {
+            context.send_event(event)
+        });
+        ProcessStatus::Normal
+    }
+}
+
+// where the host's transport is at the start of a block
+#[derive(Clone, Copy)]
+struct Position {
+    tempo: f64,
+    start_beat: f64,
+}
+
+// the param values for a block
+#[derive(Clone, Copy)]
+struct Settings {
+    step_beats: f64,
+    gate: f64,
+    hold: bool,
+}
+
+// The block processing works on plain values rather than a ProcessContext so it can be tested
+// without a host.
+impl RhoPlugin {
+    // send the grid in the params to rho, e.g. after a state is loaded
+    fn reload_rows(&mut self) {
+        self.shared.publish_rows(&self.params.grid.lock().unwrap());
+        self.applied_rows = [ROWS_NOT_APPLIED; NUM_ROWS];
+    }
+
+    // held notes go to the arpeggiator, everything else is dropped for now.
+    // these are applied for the whole block rather than at their exact time.
+    fn handle_event(&mut self, event: NoteEvent<()>) {
+        match event {
+            NoteEvent::NoteOn { note, velocity, .. } => self
+                .rho
+                .note_on(note as usize, (velocity * 127.0).round() as usize),
+            NoteEvent::NoteOff { note, .. } => self.rho.note_off(note as usize),
+            _ => (),
+        }
+    }
+
+    // position is None when the transport is stopped
+    fn process_block(
+        &mut self,
+        num_samples: usize,
+        position: Option<Position>,
+        settings: Settings,
+        send: &mut impl FnMut(NoteEvent<()>),
+    ) {
         for (row, applied) in self.applied_rows.iter_mut().enumerate() {
             let packed = self.shared.packed_row(row);
             if packed != *applied {
@@ -197,40 +263,20 @@ impl Plugin for RhoPlugin {
             }
         }
 
-        // held notes go to the arpeggiator, everything else is dropped for now.
-        // these are applied for the whole block rather than at their exact time.
-        while let Some(event) = context.next_event() {
-            match event {
-                NoteEvent::NoteOn { note, velocity, .. } => self
-                    .rho
-                    .note_on(note as usize, (velocity * 127.0).round() as usize),
-                NoteEvent::NoteOff { note, .. } => self.rho.note_off(note as usize),
-                _ => (),
-            }
+        if settings.hold != self.hold_enabled {
+            self.hold_enabled = settings.hold;
+            self.rho.set_hold_notes_enabled(settings.hold);
         }
-
-        let hold = self.params.hold.value();
-        if hold != self.hold_enabled {
-            self.hold_enabled = hold;
-            self.rho.set_hold_notes_enabled(hold);
-        }
-
-        let num_samples = buffer.samples();
-        let transport = context.transport();
-        let position = match (transport.playing, transport.tempo, transport.pos_beats()) {
-            (true, Some(tempo), Some(start_beat)) if num_samples > 0 => Some((tempo, start_beat)),
-            _ => None,
-        };
 
         let rho = &mut self.rho;
         let sounding_notes = &mut self.sounding_notes;
 
-        let Some((tempo, start_beat)) = position else {
+        let Some(Position { tempo, start_beat }) = position.filter(|_| num_samples > 0) else {
             self.step_timer
-                .stop(|_| send_note_offs(sounding_notes, context, 0));
+                .stop(|_| send_note_offs(sounding_notes, send, 0));
             rho.stop();
             self.publish_display();
-            return ProcessStatus::Normal;
+            return;
         };
 
         let samples_per_beat = self.sample_rate as f64 * 60.0 / tempo;
@@ -243,15 +289,15 @@ impl Plugin for RhoPlugin {
         self.step_timer.process_block(
             start_beat,
             end_beat,
-            self.params.step_length.value().beats(),
-            self.params.gate.value() as f64,
+            settings.step_beats,
+            settings.gate,
             |event| match event {
                 StepEvent::NotesOff { beat } => {
-                    send_note_offs(sounding_notes, context, to_timing(beat))
+                    send_note_offs(sounding_notes, send, to_timing(beat))
                 }
                 StepEvent::Step { index, beat } => {
                     for note in rho.on_step(index) {
-                        context.send_event(NoteEvent::NoteOn {
+                        send(NoteEvent::NoteOn {
                             timing: to_timing(beat),
                             voice_id: None,
                             channel: 0,
@@ -265,11 +311,8 @@ impl Plugin for RhoPlugin {
         );
 
         self.publish_display();
-        ProcessStatus::Normal
     }
-}
 
-impl RhoPlugin {
     // let the gui show what rho is doing
     fn publish_display(&self) {
         self.shared.set_playing_steps(self.rho.get_playing_steps());
@@ -280,11 +323,11 @@ impl RhoPlugin {
 
 fn send_note_offs(
     sounding_notes: &mut ArrayVec<Note, NUM_ROWS>,
-    context: &mut impl ProcessContext<RhoPlugin>,
+    send: &mut impl FnMut(NoteEvent<()>),
     timing: u32,
 ) {
     for note in sounding_notes.drain(..) {
-        context.send_event(NoteEvent::NoteOff {
+        send(NoteEvent::NoteOff {
             timing,
             voice_id: None,
             channel: 0,
@@ -312,3 +355,304 @@ impl Vst3Plugin for RhoPlugin {
 
 nih_export_clap!(RhoPlugin);
 nih_export_vst3!(RhoPlugin);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const SAMPLE_RATE: f32 = 48000.0;
+    const TEMPO: f64 = 120.0;
+    // a 1/16 step at 120bpm
+    const STEP_SAMPLES: u32 = 6000;
+
+    const DEFAULT_SETTINGS: Settings = Settings {
+        step_beats: 0.25,
+        gate: 0.5,
+        hold: false,
+    };
+
+    fn grid(rows: [&[bool]; NUM_ROWS]) -> GridActivations {
+        let mut grid = GridActivations::new(NUM_ROWS, 1);
+        for (row, steps) in rows.iter().enumerate() {
+            grid.set_row_length(row, steps.len());
+            for (step, &on) in steps.iter().enumerate() {
+                grid.set(row, step, on);
+            }
+        }
+        grid
+    }
+
+    const SILENT: [&[bool]; NUM_ROWS] = [&[false], &[false], &[false], &[false]];
+
+    // a plugin as if it had loaded these rows from a saved state
+    fn plugin(rows: [&[bool]; NUM_ROWS]) -> RhoPlugin {
+        let mut plugin = RhoPlugin::default();
+        plugin.sample_rate = SAMPLE_RATE;
+        *plugin.params.grid.lock().unwrap() = grid(rows);
+        plugin.reload_rows();
+        plugin
+    }
+
+    fn at_beat(start_beat: f64) -> Option<Position> {
+        Some(Position {
+            tempo: TEMPO,
+            start_beat,
+        })
+    }
+
+    fn note_on(plugin: &mut RhoPlugin, note: u8) {
+        plugin.handle_event(NoteEvent::NoteOn {
+            timing: 0,
+            voice_id: None,
+            channel: 0,
+            note,
+            velocity: 100.0 / 127.0,
+        });
+    }
+
+    fn note_off(plugin: &mut RhoPlugin, note: u8) {
+        plugin.handle_event(NoteEvent::NoteOff {
+            timing: 0,
+            voice_id: None,
+            channel: 0,
+            note,
+            velocity: 0.0,
+        });
+    }
+
+    // the events from one block as (on, note, timing)
+    fn run(
+        plugin: &mut RhoPlugin,
+        num_samples: usize,
+        position: Option<Position>,
+        settings: Settings,
+    ) -> Vec<(bool, u8, u32)> {
+        let mut events = Vec::new();
+        plugin.process_block(num_samples, position, settings, &mut |event| {
+            events.push(match event {
+                NoteEvent::NoteOn { note, timing, .. } => (true, note, timing),
+                NoteEvent::NoteOff { note, timing, .. } => (false, note, timing),
+                other => panic!("unexpected event {other:?}"),
+            })
+        });
+        events
+    }
+
+    #[test]
+    fn held_notes_play_on_their_rows_at_step_times() {
+        let mut plugin = plugin([&[true, false], &[false, true], &[false], &[false]]);
+        note_on(&mut plugin, 60);
+        note_on(&mut plugin, 64);
+
+        let events = run(
+            &mut plugin,
+            2 * STEP_SAMPLES as usize,
+            at_beat(0.0),
+            DEFAULT_SETTINGS,
+        );
+        assert_eq!(
+            events,
+            vec![
+                (true, 60, 0),
+                (false, 60, STEP_SAMPLES / 2),
+                (true, 64, STEP_SAMPLES),
+                (false, 64, STEP_SAMPLES * 3 / 2),
+            ]
+        );
+    }
+
+    #[test]
+    fn velocity_passes_through() {
+        let mut plugin = plugin([&[true], &[false], &[false], &[false]]);
+        note_on(&mut plugin, 60);
+
+        let mut velocity = None;
+        plugin.process_block(100, at_beat(0.0), DEFAULT_SETTINGS, &mut |event| {
+            if let NoteEvent::NoteOn { velocity: v, .. } = event {
+                velocity = Some(v);
+            }
+        });
+        assert_eq!(velocity, Some(100.0 / 127.0));
+    }
+
+    #[test]
+    fn steps_follow_the_song_position() {
+        let mut plugin = plugin([&[false, true], &[false], &[false], &[false]]);
+        note_on(&mut plugin, 60);
+
+        // starting a fifth of a beat in, the next step (an odd one) is a twentieth of a beat away
+        let events = run(&mut plugin, 2000, at_beat(0.2), DEFAULT_SETTINGS);
+        assert_eq!(events, vec![(true, 60, 1200)]);
+    }
+
+    #[test]
+    fn step_length_setting_spaces_steps() {
+        let mut plugin = plugin([&[true], &[false], &[false], &[false]]);
+        note_on(&mut plugin, 60);
+
+        let eighths = Settings {
+            step_beats: 0.5,
+            ..DEFAULT_SETTINGS
+        };
+        let note_ons: Vec<_> = run(
+            &mut plugin,
+            4 * STEP_SAMPLES as usize,
+            at_beat(0.0),
+            eighths,
+        )
+        .into_iter()
+        .filter(|(on, ..)| *on)
+        .map(|(.., timing)| timing)
+        .collect();
+        assert_eq!(note_ons, vec![0, 2 * STEP_SAMPLES]);
+    }
+
+    #[test]
+    fn row_edits_from_the_gui_apply_on_the_next_block() {
+        let mut plugin = plugin(SILENT);
+        note_on(&mut plugin, 60);
+        assert_eq!(
+            run(&mut plugin, 100, at_beat(0.0), DEFAULT_SETTINGS),
+            vec![]
+        );
+
+        // what the editor does after a click
+        plugin
+            .shared
+            .publish_rows(&grid([&[true], &[false], &[false], &[false]]));
+
+        let events = run(&mut plugin, 100, at_beat(1.0), DEFAULT_SETTINGS);
+        assert_eq!(events, vec![(true, 60, 0)]);
+    }
+
+    #[test]
+    fn reload_picks_up_a_loaded_grid() {
+        let mut plugin = plugin(SILENT);
+        note_on(&mut plugin, 60);
+
+        // loading a state replaces the grid, then initialize() reloads it
+        *plugin.params.grid.lock().unwrap() = grid([&[true], &[false], &[false], &[false]]);
+        assert_eq!(
+            run(&mut plugin, 100, at_beat(0.0), DEFAULT_SETTINGS),
+            vec![]
+        );
+
+        plugin.reload_rows();
+        let events = run(&mut plugin, 100, at_beat(1.0), DEFAULT_SETTINGS);
+        assert_eq!(events, vec![(true, 60, 0)]);
+    }
+
+    #[test]
+    fn stopping_the_transport_ends_sounding_notes() {
+        let mut plugin = plugin([&[true], &[false], &[false], &[false]]);
+        note_on(&mut plugin, 60);
+
+        // block ends before the gate closes
+        let events = run(&mut plugin, 1000, at_beat(0.0), DEFAULT_SETTINGS);
+        assert_eq!(events, vec![(true, 60, 0)]);
+
+        assert_eq!(
+            run(&mut plugin, 1000, None, DEFAULT_SETTINGS),
+            vec![(false, 60, 0)]
+        );
+        assert_eq!(run(&mut plugin, 1000, None, DEFAULT_SETTINGS), vec![]);
+    }
+
+    #[test]
+    fn hold_keeps_notes_on_their_rows_when_others_are_released() {
+        for hold in [false, true] {
+            // only the bottom row plays
+            let mut plugin = plugin([&[true], &[false], &[false], &[false]]);
+            let settings = Settings {
+                hold,
+                ..DEFAULT_SETTINGS
+            };
+            run(&mut plugin, 100, None, settings);
+            note_on(&mut plugin, 60);
+            note_on(&mut plugin, 64);
+            note_off(&mut plugin, 60);
+
+            // without hold 64 drops to the bottom row, with hold it stays put and leaves a gap
+            let expected = if hold { vec![] } else { vec![(true, 64, 0)] };
+            let events = run(&mut plugin, 100, at_beat(0.0), settings);
+            assert_eq!(events, expected, "hold {hold}");
+        }
+    }
+
+    #[test]
+    fn display_shows_playing_steps_and_row_notes() {
+        let mut plugin = plugin([&[true, false], &[false, false, true], &[false], &[false]]);
+        note_on(&mut plugin, 60);
+        note_on(&mut plugin, 64);
+
+        // the fourth step of the song
+        run(&mut plugin, 100, at_beat(0.75), DEFAULT_SETTINGS);
+        assert_eq!(
+            plugin.shared.playing_steps(),
+            [Some(1), Some(0), Some(0), Some(0)]
+        );
+
+        let notes = plugin.shared.notes_for_rows();
+        let note_numbers =
+            |row: usize| -> Vec<usize> { notes[row].iter().map(|note| note.note_number).collect() };
+        assert_eq!(note_numbers(0), vec![60]);
+        assert_eq!(note_numbers(1), vec![64]);
+
+        run(&mut plugin, 100, None, DEFAULT_SETTINGS);
+        assert_eq!(plugin.shared.playing_steps(), [None; NUM_ROWS]);
+    }
+
+    #[test]
+    fn empty_block_counts_as_stopped() {
+        let mut plugin = plugin([&[true], &[false], &[false], &[false]]);
+        note_on(&mut plugin, 60);
+        assert_eq!(run(&mut plugin, 0, at_beat(0.0), DEFAULT_SETTINGS), vec![]);
+    }
+
+    #[test]
+    fn grid_survives_saving_and_loading() {
+        let saved = RhoParams::default();
+        *saved.grid.lock().unwrap() = grid([
+            &[true, false, true],
+            &[false, true],
+            &[true, true, false, true],
+            &[false],
+        ]);
+        let fields = saved.serialize_fields();
+        assert!(fields.contains_key("grid"));
+
+        let loaded = RhoParams::default();
+        loaded.deserialize_fields(&fields);
+
+        let mut saved_grid = saved.grid.lock().unwrap();
+        let mut loaded_grid = loaded.grid.lock().unwrap();
+        for row in 0..NUM_ROWS {
+            assert_eq!(loaded_grid.get_row(row), saved_grid.get_row(row));
+        }
+        assert_eq!(
+            loaded_grid.get_normalized_density(),
+            saved_grid.get_normalized_density()
+        );
+
+        // the hidden thresholds came too, so changing the density picks the same steps
+        saved_grid.set_normalized_density(0.75);
+        loaded_grid.set_normalized_density(0.75);
+        for row in 0..NUM_ROWS {
+            assert_eq!(loaded_grid.get_row(row), saved_grid.get_row(row));
+        }
+    }
+
+    #[test]
+    fn default_grid_plays_out_of_the_box() {
+        let params = RhoParams::default();
+        let grid = params.grid.lock().unwrap();
+        assert_eq!(
+            grid.get_normalized_density(),
+            DEFAULT_DENSITY,
+            "half the steps on"
+        );
+        for row in 0..NUM_ROWS {
+            assert_eq!(grid.row_length(row), DEFAULT_ROW_LENGTH);
+        }
+    }
+}

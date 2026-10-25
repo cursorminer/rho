@@ -138,3 +138,77 @@ fn draw_row(
 
     changed
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const WIDTH: f32 = 600.0;
+
+    // draws a row headless for each batch of input events, returns whether any frame changed it
+    fn draw_frames(grid: &mut GridActivations, frames: Vec<Vec<egui::Event>>) -> bool {
+        let ctx = egui::Context::default();
+        let mut changed = false;
+        for events in frames {
+            let input = egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(WIDTH, 100.0),
+                )),
+                events,
+                ..Default::default()
+            };
+            let _ = ctx.run(input, |ctx| {
+                egui::CentralPanel::default()
+                    .frame(egui::Frame::NONE)
+                    .show(ctx, |ui| {
+                        changed |= draw_row(ui, WIDTH, grid, 0, None, &RowNotes::new());
+                    });
+            });
+        }
+        changed
+    }
+
+    fn click(x: f32, y: f32) -> Vec<Vec<egui::Event>> {
+        let pos = egui::pos2(x, y);
+        let button = |pressed| egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: Default::default(),
+        };
+        vec![
+            vec![egui::Event::PointerMoved(pos)],
+            vec![button(true)],
+            vec![button(false)],
+        ]
+    }
+
+    #[test]
+    fn clicking_a_step_toggles_it() {
+        let mut grid = GridActivations::new(NUM_ROWS, 4);
+
+        // just right of the notes label, so the first step
+        assert!(draw_frames(&mut grid, click(130.0, 25.0)));
+        assert_eq!(grid.get_row(0), vec![true, false, false, false]);
+
+        assert!(draw_frames(&mut grid, click(130.0, 25.0)));
+        assert_eq!(grid.get_row(0), vec![false; 4]);
+    }
+
+    #[test]
+    fn clicking_the_notes_label_changes_nothing() {
+        let mut grid = GridActivations::new(NUM_ROWS, 4);
+        assert!(!draw_frames(&mut grid, click(50.0, 25.0)));
+        assert_eq!(grid.get_row(0), vec![false; 4]);
+    }
+
+    #[test]
+    fn steps_fit_beside_the_length_box() {
+        // the last step of the longest row is still clickable, nothing pushed off the edge
+        let mut grid = GridActivations::new(NUM_ROWS, 4);
+        grid.set_row_length(0, 8);
+        assert!(draw_frames(&mut grid, click(WIDTH - 60.0, 25.0)));
+        assert_eq!(grid.get_row(0)[7], true);
+    }
+}

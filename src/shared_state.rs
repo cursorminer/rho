@@ -117,4 +117,55 @@ mod tests {
         shared.set_playing_steps(steps);
         assert_eq!(shared.playing_steps(), steps);
     }
+
+    #[test]
+    fn publishing_a_grid_packs_each_row() {
+        let mut grid = GridActivations::new(NUM_ROWS, 2);
+        grid.set_row_length(2, 5);
+        grid.set(2, 4, true);
+        grid.set(0, 1, true);
+
+        let shared = SharedState::default();
+        shared.publish_rows(&grid);
+        for row in 0..NUM_ROWS {
+            assert_eq!(
+                unpack_row(shared.packed_row(row)).to_vec(),
+                grid.get_row(row)
+            );
+        }
+    }
+
+    fn note(note_number: usize) -> Note {
+        Note {
+            note_number,
+            velocity: 100,
+        }
+    }
+
+    #[test]
+    fn notes_for_rows_round_trip() {
+        let shared = SharedState::default();
+        let rows = [vec![note(60), note(72)], vec![note(64)], vec![], vec![]];
+        shared.try_set_notes_for_rows(|row| &rows[row]);
+
+        let notes = shared.notes_for_rows();
+        for row in 0..NUM_ROWS {
+            assert_eq!(notes[row].to_vec(), rows[row]);
+        }
+    }
+
+    #[test]
+    fn notes_update_is_skipped_while_the_gui_reads() {
+        let shared = SharedState::default();
+        let rows = [vec![note(60)], vec![], vec![], vec![]];
+
+        let gui_lock = shared.notes_for_rows.lock().unwrap();
+        // must return rather than wait
+        shared.try_set_notes_for_rows(|row| &rows[row]);
+        drop(gui_lock);
+        assert!(shared.notes_for_rows()[0].is_empty());
+
+        shared.try_set_notes_for_rows(|row| &rows[row]);
+        assert_eq!(shared.notes_for_rows()[0].to_vec(), rows[0]);
+    }
 }

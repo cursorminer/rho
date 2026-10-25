@@ -152,4 +152,35 @@ mod tests {
         rho.stop();
         assert_eq!(rho.get_playing_steps(), [None; NUM_ROWS]);
     }
+
+    #[test]
+    fn set_row_drops_steps_past_the_max_and_ignores_bad_rows() {
+        let mut rho = Rho::new();
+        rho.set_row(0, &[true; MAX_STEPS + 3]);
+        assert_eq!(rho.rows[0].len(), MAX_STEPS);
+
+        rho.set_row(NUM_ROWS, &[true]);
+        assert!(rho.rows.iter().skip(1).all(|row| row.is_empty()));
+    }
+
+    #[test]
+    fn empty_rows_never_trigger() {
+        let mut rho = Rho::new();
+        rho.set_row(1, &[true]);
+        rho.set_row(1, &[]);
+        assert!(rho.triggered_rows(0).is_empty());
+    }
+
+    #[test]
+    fn notes_for_row_matches_get_notes_for_rows() {
+        let mut rho = Rho::new();
+        rho.note_on(60, 100);
+        rho.note_on(64, 100);
+
+        let all = rho.get_notes_for_rows();
+        for row in 0..NUM_ROWS {
+            assert_eq!(rho.notes_for_row(row), all[row].as_slice());
+        }
+        assert_eq!(rho.notes_for_row(0)[0].note_number, 60);
+    }
 }

@@ -114,7 +114,6 @@ pub fn wrap(i: usize, max: usize) -> usize {
 //   0    00
 // i 0123456789
 // because this sounds nice!
-// does not work for i > 2 * max
 pub fn fold_into_range(i: usize, max: usize) -> usize {
     if max == 0 {
         return 0;
@@ -450,6 +449,25 @@ impl NoteAssigner {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn fold_repeats_the_top_and_keeps_cycling() {
+        let folded: Vec<_> = (0..12).map(|i| fold_into_range(i, 2)).collect();
+        assert_eq!(folded, vec![0, 1, 2, 2, 1, 0, 1, 2, 2, 1, 0, 1]);
+        assert_eq!(fold_into_range(7, 0), 0);
+    }
+
+    #[test]
+    fn stacking_piles_extra_notes_on_one_end() {
+        assert_eq!(
+            (0..5).map(|i| stack_high(i, 2)).collect::<Vec<_>>(),
+            [0, 1, 2, 2, 2]
+        );
+        assert_eq!(
+            (0..5).map(|i| stack_low(i, 2)).collect::<Vec<_>>(),
+            [0, 1, 2, 0, 0]
+        );
+    }
 
     #[test]
     fn it_wraps() {
