@@ -1,5 +1,5 @@
-use eframe::egui;
 use egui::Color32;
+use nih_plug_egui::egui;
 
 pub fn step_switch_ui(ui: &mut egui::Ui, on: &mut bool, is_playing: bool) -> egui::Response {
     let desired_height = ui.spacing().interact_size.y * 2.0;
@@ -18,7 +18,9 @@ pub fn step_switch_ui(ui: &mut egui::Ui, on: &mut bool, is_playing: bool) -> egu
     }
 
     // Attach some meta-data to the response which can be used by screen readers:
-    response.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Checkbox, *on, ""));
+    response.widget_info(|| {
+        egui::WidgetInfo::selected(egui::WidgetType::Checkbox, ui.is_enabled(), *on, "")
+    });
 
     // 4. Paint!
     // Make sure we need to paint:
@@ -44,14 +46,29 @@ pub fn step_switch_ui(ui: &mut egui::Ui, on: &mut bool, is_playing: bool) -> egu
         );
         // if playing, paint a border around the switch
         if is_playing {
-            ui.painter()
-                .rect(rect, radius, playing_color, visuals.bg_stroke);
+            ui.painter().rect(
+                rect,
+                radius,
+                playing_color,
+                visuals.bg_stroke,
+                egui::StrokeKind::Inside,
+            );
             let inner_rect = rect.expand(-radius / 2.0); // make room for the border
-            ui.painter()
-                .rect(inner_rect, radius, fill_color, visuals.bg_stroke);
+            ui.painter().rect(
+                inner_rect,
+                radius,
+                fill_color,
+                visuals.bg_stroke,
+                egui::StrokeKind::Inside,
+            );
         } else {
-            ui.painter()
-                .rect(rect, radius, fill_color, visuals.bg_stroke);
+            ui.painter().rect(
+                rect,
+                radius,
+                fill_color,
+                visuals.bg_stroke,
+                egui::StrokeKind::Inside,
+            );
         }
     }
 
@@ -69,8 +86,4 @@ pub fn step_switch_ui(ui: &mut egui::Ui, on: &mut bool, is_playing: bool) -> egu
 /// ```
 pub fn step_switch(on: &mut bool, is_playing: bool) -> impl egui::Widget + '_ {
     move |ui: &mut egui::Ui| step_switch_ui(ui, on, is_playing)
-}
-
-pub fn url_to_file_source_code() -> String {
-    format!("https://github.com/emilk/egui/blob/master/{}", file!())
 }

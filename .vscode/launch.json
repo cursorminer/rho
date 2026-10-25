@@ -22,24 +22,6 @@
             },
             "args": [],
             "cwd": "${workspaceFolder}"
-        },
-        {
-            "type": "lldb",
-            "request": "launch",
-            "name": "Debug RHO",
-            "cargo": {
-                "args": [
-                    "build",
-                    "--bin=rho",
-                    "--package=rho"
-                ],
-                "filter": {
-                    "name": "rho",
-                    "kind": "bin"
-                }
-            },
-            "args": [],
-            "cwd": "${workspaceFolder}"
-        },
+        }
     ]
 }

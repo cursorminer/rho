@@ -1,8 +1,6 @@
 #![allow(dead_code)]
 
-extern crate rand;
-
-use crate::rand::prelude::SliceRandom;
+use rand::prelude::SliceRandom;
 use rand::thread_rng;
 
 use crate::rho_config::NUM_ROWS;
@@ -286,6 +284,7 @@ impl GridActivations {
     pub fn update_density(&mut self) {
         if self.get_total_num_steps() == 0 {
             self.normalized_density = 0.0;
+            return;
         }
         self.normalized_density =
             self.num_active_steps() as f32 / self.get_total_num_steps() as f32;
@@ -470,6 +469,18 @@ mod tests {
         seq.append_steps(1, 1);
         let expected_active = vec![false];
         assert_eq!(seq.active, expected_active);
+        assert_eq!(seq.normalized_density, 0.0);
+    }
+
+    #[test]
+    fn density_of_empty_grid_is_zero() {
+        let mut seq = GridActivations {
+            active: vec![],
+            thresh: vec![],
+            row_lengths: vec![0, 0, 0],
+            normalized_density: 0.5,
+        };
+        seq.update_density();
         assert_eq!(seq.normalized_density, 0.0);
     }
 

@@ -151,7 +151,9 @@ fn map_note_index_to_row_index(
     active_row_indices: &Vec<usize>,
     note_wrapping_mode: &NoteWrapping,
 ) -> Option<usize> {
-    let active_row_indices = active_row_indices;
+    if active_row_indices.is_empty() {
+        return None;
+    }
     let max_row = active_row_indices.len() - 1;
 
     let row_index = match note_wrapping_mode {
@@ -160,7 +162,7 @@ fn map_note_index_to_row_index(
         NoteWrapping::StackHigh => Some(stack_high(note_index, max_row)),
         NoteWrapping::StackLow => Some(stack_low(note_index, max_row)),
         NoteWrapping::None => {
-            if note_index < max_row {
+            if note_index <= max_row {
                 Some(note_index)
             } else {
                 None
@@ -190,11 +192,9 @@ pub struct NoteAssigner {
 
 impl NoteAssigner {
     pub fn new() -> Self {
-        let rows_vec: Vec<Row> = (0..4).map(|_| Row::default()).collect();
-        let rows_array: [Row; 4] = rows_vec.try_into().unwrap();
         NoteAssigner {
             active_notes: vec![],
-            rows: rows_array,
+            rows: Default::default(),
             note_ordering_mode: NoteOrdering::LowestFirst,
             note_wrapping_mode: NoteWrapping::Fold,
             hold_notes_enabled: false,
@@ -273,6 +273,11 @@ impl NoteAssigner {
 
     pub fn set_hold_notes_enabled(&mut self, enabled: bool) {
         self.hold_notes_enabled = enabled;
+        if !enabled {
+            // gaps left by released notes only make sense while holding
+            self.active_notes.retain(Option::is_some);
+            self.update_note_to_row_mapping();
+        }
     }
 
     pub fn all_active_notes_empty(&self) -> bool {
@@ -571,6 +576,73 @@ mod tests {
 
         assert_eq!(ga.num_active_rows(), 1);
         assert_eq!(ga.active_row_indices(), vec![1]);
+    }
+
+    #[test]
+    fn no_wrapping_uses_every_row() {
+        let rows = vec![0, 1, 2, 3];
+        assert_eq!(
+            map_note_index_to_row_index(3, &rows, &NoteWrapping::None),
+            Some(3)
+        );
+        assert_eq!(
+            map_note_index_to_row_index(4, &rows, &NoteWrapping::None),
+            None
+        );
+    }
+
+    #[test]
+    fn no_active_rows_maps_nothing() {
+        let mut ga = NoteAssigner::new();
+        for row in 0..NUM_ROWS {
+            ga.set_row_active(row, false);
+        }
+
+        ga.note_on(60, 100);
+
+        assert!(ga.get_notes_for_rows().iter().all(|notes| notes.is_empty()));
+        assert!(ga.get_next_notes(vec![0, 1, 2, 3]).is_empty());
+    }
+
+    #[test]
+    fn disabling_hold_drops_released_notes() {
+        let mut ga = NoteAssigner::new();
+        ga.set_hold_notes_enabled(true);
+        ga.note_on(60, 100);
+        ga.note_on(64, 100);
+        ga.note_off(60);
+        assert_eq!(
+            ga.active_notes,
+            vec![
+                None,
+                Some(Note {
+                    note_number: 64,
+                    velocity: 100
+                })
+            ]
+        );
+
+        ga.set_hold_notes_enabled(false);
+
+        // the gap closes up so the held note moves down to the first row
+        assert_eq!(
+            ga.active_notes,
+            vec![Some(Note {
+                note_number: 64,
+                velocity: 100
+            })]
+        );
+        assert_eq!(ga.rows[0].notes.clone_data()[0].note_number, 64);
+
+        // and new notes are ordered again rather than filling the old gap
+        ga.note_on(67, 100);
+        ga.note_on(62, 100);
+        let numbers: Vec<usize> = ga
+            .active_notes
+            .iter()
+            .map(|n| n.unwrap().note_number)
+            .collect();
+        assert_eq!(numbers, vec![62, 64, 67]);
     }
 
     // #[test]

@@ -1,5 +1,3 @@
-extern crate rand;
-
 use crate::looping_state;
 use crate::note_assigner;
 use crate::note_assigner::Note;
