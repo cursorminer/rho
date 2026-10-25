@@ -1,24 +1,25 @@
-use crate::looping_state;
-use crate::note_assigner;
 use crate::note_assigner::Note;
 use crate::note_assigner::NoteAssigner;
-use crate::rho_config::NUM_ROWS;
+use crate::rho_config::{MAX_STEPS, NUM_ROWS};
+use arrayvec::ArrayVec;
 
-pub type Rows = [looping_state::LoopingSequence<bool>; NUM_ROWS];
+pub type RowSteps = ArrayVec<bool, MAX_STEPS>;
 
+// The sequencer. Rows of different lengths loop against each other, the step to play is worked
+// out from a global step index so it always lines up with the host's song position.
+// Nothing in here allocates, so it is safe to use on the audio thread.
 pub struct Rho {
     note_assigner: NoteAssigner,
-    row_loopers: Rows,
-    playing_notes: Vec<Note>,
+    rows: [RowSteps; NUM_ROWS],
+    current_step: Option<i64>,
 }
 
 impl Rho {
     pub fn new() -> Self {
-        const DEFAULT_STEP_LEN: usize = 4;
         Rho {
             note_assigner: NoteAssigner::new(),
-            row_loopers: Default::default(),
-            playing_notes: vec![],
+            rows: Default::default(),
+            current_step: None,
         }
     }
 
@@ -26,16 +27,13 @@ impl Rho {
         self.note_assigner.set_fill_octaves_enabled(enabled);
     }
 
-    pub fn set_row_activations(&mut self, row_activations: [Vec<bool>; NUM_ROWS]) {
-        for i in 0..NUM_ROWS {
-            // if the length changes, we need to resize the row looper
-            if self.row_loopers[i].len() != row_activations[i].len() {
-                self.row_loopers[i].resize(row_activations[i].len(), false);
-            }
-            // set each step
-            for (j, active) in row_activations[i].iter().enumerate() {
-                self.row_loopers[i].set_step(j, *active);
-            }
+    // set which steps are on for a row, anything past MAX_STEPS is dropped
+    pub fn set_row(&mut self, row: usize, steps: &[bool]) {
+        if row < NUM_ROWS {
+            self.rows[row].clear();
+            let n = steps.len().min(MAX_STEPS);
+            // can't fail, we just checked the length
+            let _ = self.rows[row].try_extend_from_slice(&steps[..n]);
         }
     }
 
@@ -45,75 +43,63 @@ impl Rho {
 
     pub fn note_on(&mut self, note: usize, velocity: usize) {
         self.note_assigner.note_on(note, velocity);
-        self.note_assigner.print_row_notes();
     }
 
     pub fn note_off(&mut self, note: usize) {
         self.note_assigner.note_off(note);
-        self.note_assigner.print_row_notes();
     }
 
+    // allocates, not for the audio thread
     pub fn get_notes_for_rows(&self) -> [Vec<Note>; NUM_ROWS] {
         self.note_assigner.get_notes_for_rows()
     }
 
-    pub fn on_clock_high(&mut self) -> Vec<note_assigner::Note> {
-        // get the rows that are triggered by ticking the row loopers
-        let triggered_rows = self.tick_rows();
-
-        let notes_to_play = self.note_assigner.get_next_notes(triggered_rows);
-
-        self.track_midi_notes(notes_to_play.clone());
-
-        // keep track of the midi notes
-        notes_to_play
+    // play the step at this index, returns the notes to start
+    pub fn on_step(&mut self, step_index: i64) -> ArrayVec<Note, NUM_ROWS> {
+        self.current_step = Some(step_index);
+        let triggered_rows = self.triggered_rows(step_index);
+        self.note_assigner.get_next_notes(&triggered_rows)
     }
 
-    pub fn on_clock_low(&mut self) -> Vec<note_assigner::Note> {
-        // send note offs for all the notes
-        let notes_to_stop = self.playing_notes.clone();
-        self.playing_notes.clear();
-        notes_to_stop
-    }
-
+    // the step each row is on, for display
     pub fn get_playing_steps(&self) -> [Option<usize>; NUM_ROWS] {
         let mut steps = [None; NUM_ROWS];
-        let mut i = 0;
-        for row in self.row_loopers.iter() {
-            if self.note_assigner.row_is_active(i) {
-                steps[i] = Some(row.get_current_step());
+        if let Some(step_index) = self.current_step {
+            for (i, row) in self.rows.iter().enumerate() {
+                if self.note_assigner.row_is_active(i) && !row.is_empty() {
+                    steps[i] = Some(Self::row_step(step_index, row.len()));
+                }
             }
-            i += 1;
         }
         steps
     }
 
-    fn track_midi_notes(&mut self, notes: Vec<note_assigner::Note>) {
-        for note in notes {
-            self.playing_notes.push(note);
-        }
+    // forget the playing position, e.g. when the transport stops
+    pub fn stop(&mut self) {
+        self.current_step = None;
     }
 
-    fn tick_rows(&mut self) -> Vec<usize> {
-        let mut triggered_rows = vec![];
-        for i in 0..NUM_ROWS {
-            if let Some(t) = self.row_loopers[i].next() {
-                if t {
-                    triggered_rows.push(i);
-                }
+    fn row_step(step_index: i64, row_length: usize) -> usize {
+        step_index.rem_euclid(row_length as i64) as usize
+    }
+
+    fn triggered_rows(&self, step_index: i64) -> ArrayVec<usize, NUM_ROWS> {
+        let mut triggered_rows = ArrayVec::new();
+        for (i, row) in self.rows.iter().enumerate() {
+            if !row.is_empty() && row[Self::row_step(step_index, row.len())] {
+                triggered_rows.push(i);
             }
         }
         triggered_rows
     }
 }
 
-// todo test this
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn test_tick_rows() {
+    fn test_on_step() {
         let mut rho = Rho::new();
 
         // set 4 note ons
@@ -122,23 +108,44 @@ mod tests {
         rho.note_on(2, 100);
         rho.note_on(3, 100);
 
-        let two_true = looping_state::LoopingSequence::new(vec![true, true]);
-        let rows = [
-            two_true.clone(),
-            two_true.clone(),
-            two_true.clone(),
-            two_true.clone(),
-        ];
+        for row in 0..NUM_ROWS {
+            rho.set_row(row, &[true, true]);
+        }
 
-        rho.row_loopers = rows;
+        assert_eq!(rho.triggered_rows(0).as_slice(), &[0, 1, 2, 3]);
 
-        let triggered_rows = rho.tick_rows();
-        assert_eq!(triggered_rows, vec![0, 1, 2, 3]);
-
-        let notes = rho.on_clock_high();
+        let notes = rho.on_step(1);
         assert_eq!(notes.len(), 4);
 
         let playing_steps = rho.get_playing_steps();
         assert_eq!(playing_steps, [Some(1), Some(1), Some(1), Some(1)]);
+    }
+
+    #[test]
+    fn rows_of_different_lengths_loop_independently() {
+        let mut rho = Rho::new();
+        rho.set_row(0, &[true, false]);
+        rho.set_row(1, &[true, false, false]);
+
+        let rows_at = |rho: &Rho, step| rho.triggered_rows(step).to_vec();
+        assert_eq!(rows_at(&rho, 0), vec![0, 1]);
+        assert_eq!(rows_at(&rho, 2), vec![0]);
+        assert_eq!(rows_at(&rho, 3), vec![1]);
+        assert_eq!(rows_at(&rho, 6), vec![0, 1]);
+        // before the start of the song wraps the right way
+        assert_eq!(rows_at(&rho, -3), vec![1]);
+    }
+
+    #[test]
+    fn nothing_playing_before_first_step() {
+        let mut rho = Rho::new();
+        rho.set_row(0, &[true, false]);
+        assert_eq!(rho.get_playing_steps(), [None; NUM_ROWS]);
+
+        rho.on_step(3);
+        assert_eq!(rho.get_playing_steps()[0], Some(1));
+
+        rho.stop();
+        assert_eq!(rho.get_playing_steps(), [None; NUM_ROWS]);
     }
 }

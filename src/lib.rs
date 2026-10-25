@@ -1,5 +1,6 @@
 #![allow(dead_code)]
 
+use arrayvec::ArrayVec;
 use nih_plug::prelude::*;
 use std::sync::Arc;
 
@@ -9,23 +10,103 @@ pub mod note_assigner;
 pub mod rho;
 pub mod rho_config;
 pub mod step_switch;
+pub mod step_timer;
+
+use note_assigner::Note;
+use rho::Rho;
+use rho_config::NUM_ROWS;
+use step_timer::{StepEvent, StepTimer};
+
+// TEMP: a fixed pattern to hear rho working until there's a GUI. Rows of different lengths so
+// they drift against each other. Row 0 gets the lowest note.
+const TEMP_PATTERN: [&[bool]; NUM_ROWS] = [
+    &[true, false, false, true, false, false, true, false],
+    &[false, false, true, false],
+    &[true, false, false, true, false],
+    &[false, true, false, false, false, false],
+];
 
 struct RhoPlugin {
     params: Arc<RhoParams>,
     sample_rate: f32,
-    // DEBUG: whether the debug beat note is currently sounding
-    debug_note_on: bool,
+    rho: Rho,
+    step_timer: StepTimer,
+    // the notes that have been started and not stopped yet
+    sounding_notes: ArrayVec<Note, NUM_ROWS>,
+    hold_enabled: bool,
 }
 
-#[derive(Default, Params)]
-struct RhoParams {}
+#[derive(Enum, Debug, PartialEq, Clone, Copy)]
+enum StepLength {
+    #[name = "1/32"]
+    ThirtySecond,
+    #[name = "1/16"]
+    Sixteenth,
+    #[name = "1/8"]
+    Eighth,
+    #[name = "1/4"]
+    Quarter,
+}
+
+impl StepLength {
+    fn beats(self) -> f64 {
+        match self {
+            StepLength::ThirtySecond => 0.125,
+            StepLength::Sixteenth => 0.25,
+            StepLength::Eighth => 0.5,
+            StepLength::Quarter => 1.0,
+        }
+    }
+}
+
+#[derive(Params)]
+struct RhoParams {
+    #[id = "step-length"]
+    pub step_length: EnumParam<StepLength>,
+
+    // how long notes last as a fraction of a step
+    #[id = "gate"]
+    pub gate: FloatParam,
+
+    // keep notes on their rows when other notes are released
+    #[id = "hold"]
+    pub hold: BoolParam,
+}
+
+impl Default for RhoParams {
+    fn default() -> Self {
+        Self {
+            step_length: EnumParam::new("Step Length", StepLength::Sixteenth),
+            gate: FloatParam::new(
+                "Gate",
+                0.5,
+                FloatRange::Linear {
+                    min: 0.05,
+                    max: 1.0,
+                },
+            )
+            .with_unit("%")
+            .with_value_to_string(formatters::v2s_f32_percentage(0))
+            .with_string_to_value(formatters::s2v_f32_percentage()),
+            hold: BoolParam::new("Hold", false),
+        }
+    }
+}
 
 impl Default for RhoPlugin {
     fn default() -> Self {
+        let mut rho = Rho::new();
+        for (row, steps) in TEMP_PATTERN.iter().enumerate() {
+            rho.set_row(row, steps);
+        }
+
         Self {
             params: Arc::new(RhoParams::default()),
             sample_rate: 44100.0,
-            debug_note_on: false,
+            rho,
+            step_timer: StepTimer::default(),
+            sounding_notes: ArrayVec::new(),
+            hold_enabled: false,
         }
     }
 }
@@ -52,8 +133,8 @@ impl Plugin for RhoPlugin {
         AudioIOLayout::const_default(),
     ];
 
-    const MIDI_INPUT: MidiConfig = MidiConfig::MidiCCs;
-    const MIDI_OUTPUT: MidiConfig = MidiConfig::MidiCCs;
+    const MIDI_INPUT: MidiConfig = MidiConfig::Basic;
+    const MIDI_OUTPUT: MidiConfig = MidiConfig::Basic;
 
     const SAMPLE_ACCURATE_AUTOMATION: bool = true;
 
@@ -80,88 +161,93 @@ impl Plugin for RhoPlugin {
         _aux: &mut AuxiliaryBuffers,
         context: &mut impl ProcessContext<Self>,
     ) -> ProcessStatus {
-        let mut debug_events = [None; DEBUG_MAX_EVENTS];
-        let num_debug_events = self.debug_beat_events(buffer.samples(), context, &mut debug_events);
-        let mut debug_events = debug_events[..num_debug_events].iter().flatten().peekable();
-
-        // pass everything straight through for now, merged in time order with the debug notes
-        while let Some(event) = context.next_event() {
-            while let Some(debug_event) = debug_events.next_if(|e| e.timing() <= event.timing()) {
-                context.send_event(*debug_event);
-            }
-            context.send_event(event);
-        }
-        for debug_event in debug_events {
-            context.send_event(*debug_event);
-        }
-
         for channel in buffer.as_slice() {
             channel.fill(0.0);
         }
+
+        // held notes go to the arpeggiator, everything else is dropped for now.
+        // these are applied for the whole block rather than at their exact time.
+        while let Some(event) = context.next_event() {
+            match event {
+                NoteEvent::NoteOn { note, velocity, .. } => self
+                    .rho
+                    .note_on(note as usize, (velocity * 127.0).round() as usize),
+                NoteEvent::NoteOff { note, .. } => self.rho.note_off(note as usize),
+                _ => (),
+            }
+        }
+
+        let hold = self.params.hold.value();
+        if hold != self.hold_enabled {
+            self.hold_enabled = hold;
+            self.rho.set_hold_notes_enabled(hold);
+        }
+
+        let num_samples = buffer.samples();
+        let transport = context.transport();
+        let position = match (transport.playing, transport.tempo, transport.pos_beats()) {
+            (true, Some(tempo), Some(start_beat)) if num_samples > 0 => Some((tempo, start_beat)),
+            _ => None,
+        };
+
+        let rho = &mut self.rho;
+        let sounding_notes = &mut self.sounding_notes;
+
+        let Some((tempo, start_beat)) = position else {
+            self.step_timer
+                .stop(|_| send_note_offs(sounding_notes, context, 0));
+            rho.stop();
+            return ProcessStatus::Normal;
+        };
+
+        let samples_per_beat = self.sample_rate as f64 * 60.0 / tempo;
+        let end_beat = start_beat + num_samples as f64 / samples_per_beat;
+        let to_timing = |beat: f64| {
+            let sample = ((beat - start_beat) * samples_per_beat).round();
+            sample.clamp(0.0, (num_samples - 1) as f64) as u32
+        };
+
+        self.step_timer.process_block(
+            start_beat,
+            end_beat,
+            self.params.step_length.value().beats(),
+            self.params.gate.value() as f64,
+            |event| match event {
+                StepEvent::NotesOff { beat } => {
+                    send_note_offs(sounding_notes, context, to_timing(beat))
+                }
+                StepEvent::Step { index, beat } => {
+                    for note in rho.on_step(index) {
+                        context.send_event(NoteEvent::NoteOn {
+                            timing: to_timing(beat),
+                            voice_id: None,
+                            channel: 0,
+                            note: note.note_number as u8,
+                            velocity: note.velocity as f32 / 127.0,
+                        });
+                        let _ = sounding_notes.try_push(note);
+                    }
+                }
+            },
+        );
 
         ProcessStatus::Normal
     }
 }
 
-// DEBUG: plays C3 on every beat while the transport runs, to check MIDI output reaches the host.
-// Remove once the sequencer is wired up.
-const DEBUG_NOTE: u8 = 60;
-const DEBUG_MAX_EVENTS: usize = 8;
-
-impl RhoPlugin {
-    // fills `events` with a note on at each beat and a note off at each half beat in this block,
-    // returns how many were written
-    fn debug_beat_events(
-        &mut self,
-        num_samples: usize,
-        context: &mut impl ProcessContext<Self>,
-        events: &mut [Option<PluginNoteEvent<Self>>; DEBUG_MAX_EVENTS],
-    ) -> usize {
-        let transport = context.transport();
-        let (Some(tempo), Some(start_beat)) = (transport.tempo, transport.pos_beats()) else {
-            return 0;
-        };
-        let note_off = |timing| NoteEvent::NoteOff {
+fn send_note_offs(
+    sounding_notes: &mut ArrayVec<Note, NUM_ROWS>,
+    context: &mut impl ProcessContext<RhoPlugin>,
+    timing: u32,
+) {
+    for note in sounding_notes.drain(..) {
+        context.send_event(NoteEvent::NoteOff {
             timing,
             voice_id: None,
             channel: 0,
-            note: DEBUG_NOTE,
+            note: note.note_number as u8,
             velocity: 0.0,
-        };
-
-        if !transport.playing {
-            if self.debug_note_on {
-                self.debug_note_on = false;
-                events[0] = Some(note_off(0));
-                return 1;
-            }
-            return 0;
-        }
-
-        let samples_per_beat = self.sample_rate as f64 * 60.0 / tempo;
-        let end_beat = start_beat + num_samples as f64 / samples_per_beat;
-
-        let mut count = 0;
-        let mut half_beat = (start_beat * 2.0).ceil();
-        while half_beat / 2.0 < end_beat && count < DEBUG_MAX_EVENTS {
-            let timing = ((half_beat / 2.0 - start_beat) * samples_per_beat) as u32;
-            let is_on = half_beat as i64 % 2 == 0;
-            events[count] = Some(if is_on {
-                NoteEvent::NoteOn {
-                    timing,
-                    voice_id: None,
-                    channel: 0,
-                    note: DEBUG_NOTE,
-                    velocity: 0.8,
-                }
-            } else {
-                note_off(timing)
-            });
-            self.debug_note_on = is_on;
-            count += 1;
-            half_beat += 1.0;
-        }
-        count
+        });
     }
 }
 

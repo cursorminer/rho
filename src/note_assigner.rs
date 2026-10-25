@@ -1,7 +1,8 @@
 #![allow(dead_code)]
 
 use crate::looping_state::LoopingSequence;
-use crate::rho_config::NUM_ROWS;
+use crate::rho_config::{MAX_NOTES, NUM_ROWS};
+use arrayvec::ArrayVec;
 use std::cmp::PartialOrd;
 use std::fmt;
 
@@ -74,9 +75,9 @@ enum NoteWrapping {
 // this could implement an iterator trait, and next does the right things...
 #[derive(Debug)]
 struct Row {
-    active: bool,                 // is the row on or off
-    notes: LoopingSequence<Note>, // the midi notes associated with the row
-    rotation_counter: usize,      // which of notes to play next
+    active: bool,                            // is the row on or off
+    notes: LoopingSequence<Note, MAX_NOTES>, // the midi notes associated with the row
+    rotation_counter: usize,                 // which of notes to play next
 }
 
 impl Row {
@@ -93,7 +94,7 @@ impl Default for Row {
     fn default() -> Self {
         Row {
             active: true,
-            notes: LoopingSequence::new(vec![]),
+            notes: LoopingSequence::default(),
             rotation_counter: 0,
         }
     }
@@ -148,7 +149,7 @@ pub fn stack_low(i: usize, max: usize) -> usize {
 
 fn map_note_index_to_row_index(
     note_index: usize,
-    active_row_indices: &Vec<usize>,
+    active_row_indices: &[usize],
     note_wrapping_mode: &NoteWrapping,
 ) -> Option<usize> {
     if active_row_indices.is_empty() {
@@ -180,7 +181,7 @@ fn map_note_index_to_row_index(
 // This class keeps track of the active notes, assigns notes to rows, and handles which note comes next for a given row.
 // Probably should be renamed to reflect that fact...
 pub struct NoteAssigner {
-    active_notes: Vec<Option<Note>>, // the none state means that we have an empty row but others are pinned above it
+    active_notes: ArrayVec<Option<Note>, MAX_NOTES>, // the none state means that we have an empty row but others are pinned above it
     rows: [Row; NUM_ROWS],
     note_ordering_mode: NoteOrdering,
     note_wrapping_mode: NoteWrapping,
@@ -193,7 +194,7 @@ pub struct NoteAssigner {
 impl NoteAssigner {
     pub fn new() -> Self {
         NoteAssigner {
-            active_notes: vec![],
+            active_notes: ArrayVec::new(),
             rows: Default::default(),
             note_ordering_mode: NoteOrdering::LowestFirst,
             note_wrapping_mode: NoteWrapping::Fold,
@@ -204,13 +205,13 @@ impl NoteAssigner {
     }
 
     // given which rows are active and have assigned notes, return the notes
-    pub fn get_next_notes(&mut self, triggered_rows: Vec<usize>) -> Vec<Note> {
+    pub fn get_next_notes(&mut self, triggered_rows: &[usize]) -> ArrayVec<Note, NUM_ROWS> {
         // tick all the rows that are active and appear in triggered rows
-        let mut notes = vec![];
-        for row_index in triggered_rows {
+        let mut notes = ArrayVec::new();
+        for &row_index in triggered_rows {
             if self.row_has_note_and_active(row_index) {
                 if let Some(note) = self.rows[row_index].tick() {
-                    notes.push(note);
+                    let _ = notes.try_push(note);
                 }
             }
         }
@@ -224,6 +225,9 @@ impl NoteAssigner {
         };
 
         if !self.fill_empty_note_if_available(new_note) {
+            if self.active_notes.is_full() {
+                return;
+            }
             match self.note_ordering_mode {
                 NoteOrdering::LowestFirst => {
                     let pos = self
@@ -275,7 +279,7 @@ impl NoteAssigner {
         self.hold_notes_enabled = enabled;
         if !enabled {
             // gaps left by released notes only make sense while holding
-            self.active_notes.retain(Option::is_some);
+            self.active_notes.retain(|n| n.is_some());
             self.update_note_to_row_mapping();
         }
     }
@@ -299,7 +303,7 @@ impl NoteAssigner {
     }
 
     // returns a vector of indices for the active notes (will always be in ascending order)
-    pub fn active_row_indices(&self) -> Vec<usize> {
+    pub fn active_row_indices(&self) -> ArrayVec<usize, NUM_ROWS> {
         self.rows
             .iter()
             .enumerate()
@@ -359,29 +363,26 @@ impl NoteAssigner {
     }
 
     // when anything changes, reassign the notes to the rows
+    // each row keeps its place in its note cycle, so changing the held notes doesn't restart it
     fn update_note_to_row_mapping(&mut self) {
-        self.clear_all_note_assignments();
+        let active_row_indices = self.active_row_indices();
+        let mut notes_for_rows: [ArrayVec<Note, MAX_NOTES>; NUM_ROWS] = Default::default();
 
-        // make a copy of active notes, because we can't borrow self.active_notes to change self.rows
-        let active_notes = self.active_notes.clone();
-        // loop over active notes
-        // get the row index that the note will be assigned to
-        // copy the note in
-        active_notes
-            .iter()
-            .enumerate()
-            .for_each(|(note_index, note)| {
-                let row_index = map_note_index_to_row_index(
-                    note_index,
-                    &self.active_row_indices(),
-                    &self.note_wrapping_mode,
-                );
-                if let Some(r) = row_index {
-                    if let Some(n) = note {
-                        self.rows[r].add_note(*n);
-                    }
-                }
-            });
+        // get the row index that each note will be assigned to and copy the note in
+        for (note_index, note) in self.active_notes.iter().enumerate() {
+            let row_index = map_note_index_to_row_index(
+                note_index,
+                &active_row_indices,
+                &self.note_wrapping_mode,
+            );
+            if let (Some(r), Some(n)) = (row_index, note) {
+                let _ = notes_for_rows[r].try_push(*n);
+            }
+        }
+
+        for (row, notes) in self.rows.iter_mut().zip(notes_for_rows.iter()) {
+            row.notes.set_data(notes);
+        }
 
         if self.auto_octave_enabled {
             self.fill_remaining_rows_with_octaves();
@@ -454,7 +455,7 @@ mod tests {
     #[test]
     fn test_note_assigner_note_on_off() {
         let mut ga = NoteAssigner::new();
-        assert_eq!(ga.active_notes, vec![]);
+        assert_eq!(ga.active_notes.to_vec(), vec![]);
         assert!(!ga.row_has_note_and_active(0));
 
         let note = Note {
@@ -509,7 +510,7 @@ mod tests {
     #[test]
     fn test_note_assigner_note_row_mapping() {
         let mut ga = NoteAssigner::new();
-        assert_eq!(ga.active_notes, vec![]);
+        assert_eq!(ga.active_notes.to_vec(), vec![]);
         assert!(!ga.row_has_note_and_active(0));
 
         let note1 = Note {
@@ -552,10 +553,10 @@ mod tests {
         assert_eq!(ga.invert_active_row_index(0), 1);
 
         // trigger rows 1,2,3
-        let notes = ga.get_next_notes(vec![0, 1, 2, 3]);
+        let notes = ga.get_next_notes(&[0, 1, 2, 3]);
 
         // expect the notes from the first two rows
-        assert_eq!(notes, vec![note1, note2]);
+        assert_eq!(notes.to_vec(), vec![note1, note2]);
 
         ga.print_row_notes();
     }
@@ -570,12 +571,30 @@ mod tests {
         ga.set_row_active(3, true);
 
         assert_eq!(ga.num_active_rows(), 2);
-        assert_eq!(ga.active_row_indices(), vec![1, 3]);
+        assert_eq!(ga.active_row_indices().to_vec(), vec![1, 3]);
 
         ga.set_row_active(3, false);
 
         assert_eq!(ga.num_active_rows(), 1);
-        assert_eq!(ga.active_row_indices(), vec![1]);
+        assert_eq!(ga.active_row_indices().to_vec(), vec![1]);
+    }
+
+    #[test]
+    fn note_changes_keep_each_rows_place_in_its_cycle() {
+        let mut ga = NoteAssigner::new();
+        ga.set_row_active(2, false);
+        ga.set_row_active(3, false);
+
+        // folding over two rows gives row 0 [69] and row 1 [70, 71]
+        ga.note_on(69, 100);
+        ga.note_on(70, 100);
+        ga.note_on(71, 100);
+        assert_eq!(ga.get_next_notes(&[1])[0].note_number, 70);
+
+        // row 0 becomes [69, 72], row 1 is unchanged and carries on to its second note
+        ga.note_on(72, 100);
+        assert_eq!(ga.get_next_notes(&[1])[0].note_number, 71);
+        assert_eq!(ga.get_next_notes(&[1])[0].note_number, 70);
     }
 
     #[test]
@@ -601,7 +620,7 @@ mod tests {
         ga.note_on(60, 100);
 
         assert!(ga.get_notes_for_rows().iter().all(|notes| notes.is_empty()));
-        assert!(ga.get_next_notes(vec![0, 1, 2, 3]).is_empty());
+        assert!(ga.get_next_notes(&[0, 1, 2, 3]).is_empty());
     }
 
     #[test]
@@ -612,7 +631,7 @@ mod tests {
         ga.note_on(64, 100);
         ga.note_off(60);
         assert_eq!(
-            ga.active_notes,
+            ga.active_notes.to_vec(),
             vec![
                 None,
                 Some(Note {
@@ -626,7 +645,7 @@ mod tests {
 
         // the gap closes up so the held note moves down to the first row
         assert_eq!(
-            ga.active_notes,
+            ga.active_notes.to_vec(),
             vec![Some(Note {
                 note_number: 64,
                 velocity: 100

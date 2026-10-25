@@ -19,6 +19,7 @@ crate-type = ["cdylib", "lib"]
 nih_plug = { git = "https://github.com/robbert-vdh/nih-plug.git", features = ["assert_process_allocs"] }
 nih_plug_egui = { git = "https://github.com/robbert-vdh/nih-plug.git", package = "nih_plug_egui" }
 
+arrayvec = "0.7"
 rand = "0.8.5"
 
 [profile.release]

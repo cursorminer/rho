@@ -1,19 +1,22 @@
+use arrayvec::ArrayVec;
+
+// a fixed capacity sequence that loops round forever, does not allocate
 #[derive(Debug, Clone)]
-pub struct LoopingSequence<T> {
-    data: Vec<T>, // TODO make this private and have smarter setters
+pub struct LoopingSequence<T, const N: usize> {
+    data: ArrayVec<T, N>,
     counter: usize,
 }
 
-impl<T> LoopingSequence<T>
+impl<T, const N: usize> LoopingSequence<T, N>
 where
     T: Clone,
     T: Copy,
 {
-    pub fn new(data: Vec<T>) -> Self {
-        Self {
-            data: data,
-            counter: 0,
-        }
+    // anything past the capacity is dropped
+    pub fn new(data: &[T]) -> Self {
+        let mut s = Self::default();
+        s.set_data(data);
+        s
     }
 
     pub fn clear(&mut self) {
@@ -24,47 +27,31 @@ where
     pub fn reset(&mut self) {
         self.counter = 0;
     }
-    pub fn append(&mut self, value: T) {
-        self.data.push(value);
+
+    // returns false if full
+    pub fn append(&mut self, value: T) -> bool {
+        self.data.try_push(value).is_ok()
     }
 
-    pub fn resize(&mut self, new_length: usize, value: T) {
-        if new_length == 0 {
-            self.clear();
-            return;
-        }
-        // adjust counter to be within bounds
-        if self.counter >= new_length {
-            self.counter = self.counter % new_length;
-        }
-        self.data.resize(new_length, value);
+    // replace the contents but keep our place in the loop, anything past the capacity is dropped
+    pub fn set_data(&mut self, data: &[T]) {
+        self.data.clear();
+        let n = data.len().min(N);
+        // can't fail, we just checked the length
+        let _ = self.data.try_extend_from_slice(&data[..n]);
     }
 
-    pub fn set_data(&mut self, data: Vec<T>) {
-        self.data = data.clone();
+    pub fn data(&self) -> &[T] {
+        &self.data
     }
 
+    // allocates, not for the audio thread
     pub fn clone_data(&self) -> Vec<T> {
-        self.data.clone()
-    }
-
-    pub fn set_step(&mut self, step: usize, value: T) {
-        if step < self.data.len() {
-            self.data[step] = value;
-        }
-    }
-
-    pub fn get_current_step(&self) -> usize {
-        // counter is post incremented so we need to subtract 1
-        if self.data.len() == 0 {
-            return 0;
-        }
-        ((self.counter + self.data.len()) - 1) % self.data.len()
+        self.data.to_vec()
     }
 }
 
-// is there a point to doing this? could it be useful?
-impl<T> Iterator for LoopingSequence<T>
+impl<T, const N: usize> Iterator for LoopingSequence<T, N>
 where
     T: Clone + Copy,
 {
@@ -84,7 +71,7 @@ where
     }
 }
 
-impl<T> ExactSizeIterator for LoopingSequence<T>
+impl<T, const N: usize> ExactSizeIterator for LoopingSequence<T, N>
 where
     T: Clone + Copy,
 {
@@ -93,14 +80,13 @@ where
     }
 }
 
-impl<T> Default for LoopingSequence<T>
+impl<T, const N: usize> Default for LoopingSequence<T, N>
 where
     T: Clone + Copy,
 {
     fn default() -> Self {
-        let default_data = vec![];
         Self {
-            data: default_data,
+            data: ArrayVec::new(),
             counter: 0,
         }
     }
@@ -112,7 +98,7 @@ mod tests {
 
     #[test]
     fn test_looping_state() {
-        let mut s = LoopingSequence::new(vec![10, 20, 30]);
+        let mut s: LoopingSequence<i32, 4> = LoopingSequence::new(&[10, 20, 30]);
 
         assert_eq!(s.next(), Some(10));
         assert_eq!(s.next(), Some(20));
@@ -121,8 +107,24 @@ mod tests {
         s.reset();
         assert_eq!(s.next(), Some(10));
         assert_eq!(s.next(), Some(20));
-        s.resize(1, 0);
+        s.set_data(&[10]);
         assert_eq!(s.next(), Some(10));
         assert_eq!(s.next(), Some(10));
+    }
+
+    #[test]
+    fn set_data_keeps_place() {
+        let mut s: LoopingSequence<i32, 4> = LoopingSequence::new(&[10, 20, 30]);
+        assert_eq!(s.next(), Some(10));
+
+        s.set_data(&[10, 20, 30, 40]);
+        assert_eq!(s.next(), Some(20));
+    }
+
+    #[test]
+    fn drops_values_past_capacity() {
+        let mut s: LoopingSequence<i32, 2> = LoopingSequence::new(&[10, 20, 30]);
+        assert_eq!(s.data(), &[10, 20]);
+        assert!(!s.append(40));
     }
 }
