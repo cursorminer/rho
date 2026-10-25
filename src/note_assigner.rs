@@ -6,6 +6,7 @@ use arrayvec::ArrayVec;
 use std::cmp::PartialOrd;
 use std::fmt;
 
+// note names as Live shows them, where middle C (60) is C3
 pub fn to_string(note: &Note) -> String {
     let note_class = note.note_number % 12;
     let note_name = match note_class {
@@ -23,7 +24,8 @@ pub fn to_string(note: &Note) -> String {
         11 => "B",
         _ => "Unknown",
     };
-    format!("{}{}", note_name, note.note_number / 12)
+    let octave = (note.note_number / 12) as i32 - 2;
+    format!("{}{}", note_name, octave)
 }
 
 // a midi note
@@ -467,6 +469,21 @@ mod tests {
             (0..5).map(|i| stack_low(i, 2)).collect::<Vec<_>>(),
             [0, 1, 2, 0, 0]
         );
+    }
+
+    #[test]
+    fn note_names_match_live() {
+        let name = |note_number| {
+            Note {
+                note_number,
+                velocity: 100,
+            }
+            .to_string()
+        };
+        assert_eq!(name(60), "C3");
+        assert_eq!(name(61), "C#3");
+        assert_eq!(name(0), "C-2");
+        assert_eq!(name(127), "G8");
     }
 
     #[test]
