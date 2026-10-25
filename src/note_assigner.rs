@@ -427,6 +427,11 @@ impl NoteAssigner {
         notes
     }
 
+    // the notes assigned to a row, doesn't allocate
+    pub fn notes_for_row(&self, row: usize) -> &[Note] {
+        self.rows[row].notes.data()
+    }
+
     pub fn print_row_notes(&self) {
         print!("[");
         let mut i = 0;

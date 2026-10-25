@@ -15,3 +15,9 @@ cargo test
 ```
 
 On macOS, `./bmv.sh` builds and installs the VST3 to the system plugin folder.
+
+## Running standalone
+
+`./run.sh` runs the same plugin as a standalone app, which is quicker for iterating than loading
+it in a DAW. Set `RHO_MIDI_IN` / `RHO_MIDI_OUT` to pick MIDI devices (e.g. "IAC Driver Bus 1");
+an empty or wrong name lists the available ones.

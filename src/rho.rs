@@ -54,6 +54,10 @@ impl Rho {
         self.note_assigner.get_notes_for_rows()
     }
 
+    pub fn notes_for_row(&self, row: usize) -> &[Note] {
+        self.note_assigner.notes_for_row(row)
+    }
+
     // play the step at this index, returns the notes to start
     pub fn on_step(&mut self, step_index: i64) -> ArrayVec<Note, NUM_ROWS> {
         self.current_step = Some(step_index);

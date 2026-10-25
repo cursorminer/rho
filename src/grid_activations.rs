@@ -2,6 +2,7 @@
 
 use rand::prelude::SliceRandom;
 use rand::thread_rng;
+use serde::{Deserialize, Serialize};
 
 use crate::rho_config::NUM_ROWS;
 
@@ -80,6 +81,7 @@ pub fn grid_index_to_flat_index(grid_index: (usize, usize), row_lengths: &Vec<us
     return flat;
 }
 
+#[derive(Serialize, Deserialize)]
 pub struct GridActivations {
     active: Vec<bool>,
     thresh: Vec<usize>,
@@ -104,7 +106,6 @@ impl GridActivations {
     }
 
     pub fn set_normalized_density(&mut self, density: f32) {
-        print!("set_normalized_density {}\n", density);
         self.normalized_density = density;
         let wanted_num_active_steps = (density * self.get_total_num_steps() as f32) as usize;
 

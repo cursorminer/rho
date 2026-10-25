@@ -16,11 +16,12 @@ crate-type = ["cdylib", "lib"]
 [dependencies]
 # Remove the `assert_process_allocs` feature to allow allocations on the audio
 # thread in debug builds.
-nih_plug = { git = "https://github.com/robbert-vdh/nih-plug.git", features = ["assert_process_allocs"] }
+nih_plug = { git = "https://github.com/robbert-vdh/nih-plug.git", features = ["assert_process_allocs", "standalone"] }
 nih_plug_egui = { git = "https://github.com/robbert-vdh/nih-plug.git", package = "nih_plug_egui" }
 
 arrayvec = "0.7"
 rand = "0.8.5"
+serde = { version = "1", features = ["derive"] }
 
 [profile.release]
 lto = "thin"

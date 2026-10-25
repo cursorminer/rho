@@ -2,32 +2,38 @@
 
 use arrayvec::ArrayVec;
 use nih_plug::prelude::*;
-use std::sync::Arc;
+use nih_plug_egui::EguiState;
+use std::sync::{Arc, Mutex};
 
+mod editor;
 pub mod grid_activations;
 pub mod looping_state;
 pub mod note_assigner;
 pub mod rho;
 pub mod rho_config;
+pub mod shared_state;
 pub mod step_switch;
 pub mod step_timer;
 
+use grid_activations::GridActivations;
 use note_assigner::Note;
 use rho::Rho;
 use rho_config::NUM_ROWS;
+use shared_state::{unpack_row, SharedState};
 use step_timer::{StepEvent, StepTimer};
 
-// TEMP: a fixed pattern to hear rho working until there's a GUI. Rows of different lengths so
-// they drift against each other. Row 0 gets the lowest note.
-const TEMP_PATTERN: [&[bool]; NUM_ROWS] = [
-    &[true, false, false, true, false, false, true, false],
-    &[false, false, true, false],
-    &[true, false, false, true, false],
-    &[false, true, false, false, false, false],
-];
+// the rows rho starts with, before the gui or a saved state changes them
+const DEFAULT_ROW_LENGTH: usize = 4;
+const DEFAULT_DENSITY: f32 = 0.5;
 
-struct RhoPlugin {
+// never a packed row, so every row gets applied
+const ROWS_NOT_APPLIED: u32 = u32::MAX;
+
+pub struct RhoPlugin {
     params: Arc<RhoParams>,
+    shared: Arc<SharedState>,
+    // the packed rows last given to rho, to spot when the gui changes them
+    applied_rows: [u32; NUM_ROWS],
     sample_rate: f32,
     rho: Rho,
     step_timer: StepTimer,
@@ -37,7 +43,7 @@ struct RhoPlugin {
 }
 
 #[derive(Enum, Debug, PartialEq, Clone, Copy)]
-enum StepLength {
+pub enum StepLength {
     #[name = "1/32"]
     ThirtySecond,
     #[name = "1/16"]
@@ -60,7 +66,15 @@ impl StepLength {
 }
 
 #[derive(Params)]
-struct RhoParams {
+pub struct RhoParams {
+    #[persist = "editor-state"]
+    editor_state: Arc<EguiState>,
+
+    // the step pattern. Only the gui and initialize() touch this, the audio thread gets the rows
+    // through SharedState.
+    #[persist = "grid"]
+    grid: Mutex<GridActivations>,
+
     #[id = "step-length"]
     pub step_length: EnumParam<StepLength>,
 
@@ -75,7 +89,12 @@ struct RhoParams {
 
 impl Default for RhoParams {
     fn default() -> Self {
+        let mut grid = GridActivations::new(NUM_ROWS, DEFAULT_ROW_LENGTH);
+        grid.set_normalized_density(DEFAULT_DENSITY);
+
         Self {
+            editor_state: editor::default_state(),
+            grid: Mutex::new(grid),
             step_length: EnumParam::new("Step Length", StepLength::Sixteenth),
             gate: FloatParam::new(
                 "Gate",
@@ -95,15 +114,12 @@ impl Default for RhoParams {
 
 impl Default for RhoPlugin {
     fn default() -> Self {
-        let mut rho = Rho::new();
-        for (row, steps) in TEMP_PATTERN.iter().enumerate() {
-            rho.set_row(row, steps);
-        }
-
         Self {
             params: Arc::new(RhoParams::default()),
+            shared: Arc::new(SharedState::default()),
+            applied_rows: [ROWS_NOT_APPLIED; NUM_ROWS],
             sample_rate: 44100.0,
-            rho,
+            rho: Rho::new(),
             step_timer: StepTimer::default(),
             sounding_notes: ArrayVec::new(),
             hold_enabled: false,
@@ -145,6 +161,10 @@ impl Plugin for RhoPlugin {
         self.params.clone()
     }
 
+    fn editor(&mut self, _async_executor: AsyncExecutor<Self>) -> Option<Box<dyn Editor>> {
+        editor::create(self.params.clone(), self.shared.clone())
+    }
+
     fn initialize(
         &mut self,
         _audio_io_layout: &AudioIOLayout,
@@ -152,6 +172,10 @@ impl Plugin for RhoPlugin {
         _context: &mut impl InitContext<Self>,
     ) -> bool {
         self.sample_rate = buffer_config.sample_rate;
+
+        // this also runs after a state is loaded, so pick up the loaded grid
+        self.shared.publish_rows(&self.params.grid.lock().unwrap());
+        self.applied_rows = [ROWS_NOT_APPLIED; NUM_ROWS];
         true
     }
 
@@ -163,6 +187,14 @@ impl Plugin for RhoPlugin {
     ) -> ProcessStatus {
         for channel in buffer.as_slice() {
             channel.fill(0.0);
+        }
+
+        for (row, applied) in self.applied_rows.iter_mut().enumerate() {
+            let packed = self.shared.packed_row(row);
+            if packed != *applied {
+                self.rho.set_row(row, &unpack_row(packed));
+                *applied = packed;
+            }
         }
 
         // held notes go to the arpeggiator, everything else is dropped for now.
@@ -197,6 +229,7 @@ impl Plugin for RhoPlugin {
             self.step_timer
                 .stop(|_| send_note_offs(sounding_notes, context, 0));
             rho.stop();
+            self.publish_display();
             return ProcessStatus::Normal;
         };
 
@@ -231,7 +264,17 @@ impl Plugin for RhoPlugin {
             },
         );
 
+        self.publish_display();
         ProcessStatus::Normal
+    }
+}
+
+impl RhoPlugin {
+    // let the gui show what rho is doing
+    fn publish_display(&self) {
+        self.shared.set_playing_steps(self.rho.get_playing_steps());
+        self.shared
+            .try_set_notes_for_rows(|row| self.rho.notes_for_row(row));
     }
 }
 
